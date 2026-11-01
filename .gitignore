@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+sample_output.txt
+extracted_data.txt
+methodology.txt
+methodology_clean.txt
+home.txt
+home_extracted.txt
+market.txt
+ig_sample.txt
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/*/build/
+android/local.properties
+android/*.iml
+android/*/*.iml
+.idea/
+.gradle/
+build/
+
+# OS
+.DS_Store
+Thumbs.db

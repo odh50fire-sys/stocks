@@ -1,0 +1,61 @@
+name: Build and Release Android APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant Execute Permission to Gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build APK with Gradle
+        working-directory: android
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 24h-stocks-app-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        with:
+          tag_name: v1.0.0
+          name: "24H Stocks Mobile App v1.0.0"
+          body: |
+            ### 📱 24H 글로벌 주식 모바일 앱 & 6x6 위젯 (Android APK)
+            
+            - **12개 지표 실시간 시세 및 등락률 (2열 6행)**
+            - **상하/좌우 무스크롤 1-Screen 모바일 UI**
+            - **TradingView 캔들스틱 전문 주식 차트**
+            - **6x6 크기 홈스크린 위젯 지원**
+            
+            아래 Assets의 `app-debug.apk`를 안드로이드 스마트폰에 다운로드하여 설치하실 수 있습니다.
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="bg_dark">#0A0B0E</color>
+    <color name="bg_widget">#14171F</color>
+    <color name="stock_up">#FF3B30</color>
+    <color name="stock_down">#0A84FF</color>
+    <color name="text_muted">#9CA3AF</color>
+    <color name="text_white">#F3F4F6</color>
+</resources>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>글로벌 24H 모바일 주식 대시보드</title>
+  <meta name="theme-color" content="#0a0b0e">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <!-- MOBILE DEVICE VIEWPORT (NO-SCROLL 100vh) -->
+  <main class="mobile-viewport">
+
+    <!-- APP HEADER -->
+    <header class="app-header">
+      <div class="brand-section">
+        <h1 class="brand-title">24H STOCKS</h1>
+        <div class="live-pill">
+          <span class="pulse-dot"></span>
+          <span>LIVE</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span id="last-updated-time" style="font-size: 10px; color: #64748b; font-feature-settings: 'tnum';">--:--:--</span>
+        <button id="widget-toggle-btn" class="header-btn" title="6x6 위젯 보기">
+          📱 6x6 위젯
+        </button>
+        <button id="refresh-btn" class="header-btn" title="새로고침">
+          🔄
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN DASHBOARD (2 COLUMNS x 6 ROWS) -->
+    <section id="dashboard-grid" class="dashboard-grid">
+      <!-- 12 Stock Cards rendered dynamically via app.js -->
+    </section>
+
+    <!-- DETAIL SCREEN OVERLAY (100% NO-SCROLL) -->
+    <aside id="detail-screen" class="detail-screen">
+      <!-- Detail Header -->
+      <div class="detail-header">
+        <div class="detail-title-group">
+          <h2 id="detail-name" class="detail-name">종목명</h2>
+          <span id="detail-sub" class="detail-sub">SYMBOL · Source</span>
+        </div>
+        <button id="detail-close-btn" class="close-btn" aria-label="닫기">✕</button>
+      </div>
+
+      <!-- Detail Price Bar -->
+      <div class="detail-price-bar">
+        <span id="detail-price" class="detail-main-price">0.00</span>
+        <div id="detail-badge" class="change-badge">0.00%</div>
+      </div>
+
+      <!-- Timeframe Selector (Only for chart items) -->
+      <div class="detail-timeframe-bar">
+        <button class="tf-btn active" data-tf="5m">5분</button>
+        <button class="tf-btn" data-tf="15m">15분</button>
+        <button class="tf-btn" data-tf="1h">1시간</button>
+        <button class="tf-btn" data-tf="1d">1일</button>
+      </div>
+
+      <!-- Professional Chart View -->
+      <div id="detail-chart-wrapper" class="detail-chart-container">
+        <div class="chart-legend">
+          <span id="legend-ma5" class="legend-ma5">MA5: --</span>
+          <span id="legend-ma20" class="legend-ma20">MA20: --</span>
+        </div>
+        <div id="tv-chart" style="width: 100%; height: 100%;"></div>
+      </div>
+
+      <!-- Value Only Details View (For non-chart items) -->
+      <div id="value-detail-view" class="value-detail-view" style="display: none;">
+        <!-- Rendered dynamically -->
+      </div>
+    </aside>
+
+    <!-- 6x6 WIDGET PREVIEW OVERLAY -->
+    <section id="widget-screen" class="widget-screen">
+      <div class="widget-6x6-container">
+        <div class="widget-header">
+          <span class="widget-title">GLOBAL 24H WIDGET</span>
+          <span class="widget-badge">6x6 SIZE</span>
+        </div>
+        <div id="widget-grid" class="widget-grid">
+          <!-- 12 Items in 2x6 layout -->
+        </div>
+      </div>
+      <button id="widget-close-btn" class="widget-close-btn">앱으로 돌아가기</button>
+    </section>
+
+  </main>
+
+  <!-- TradingView Lightweight Charts Library (Local or CDN Fallback) -->
+  <script src="/lightweight-charts.standalone.production.js"></script>
+  <script>
+    if (!window.LightweightCharts) {
+      document.write('<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"><\/script>');
+    }
+  </script>
+  <script src="/app.js"></script>
+</body>
+</html>

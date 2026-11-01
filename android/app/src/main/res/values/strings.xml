@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">24H STOCKS</string>
+    <string name="widget_name">24H 주식 6x6 위젯</string>
+    <string name="widget_desc">주말 및 야간 글로벌 주요 12개 지표 실시간 시세 (2열 6행)</string>
+</resources>

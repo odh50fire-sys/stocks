@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg_widget"
+    android:padding="10dp">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="24H STOCKS (6x6)"
+            android:textColor="#38BDF8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="LIVE"
+            android:textColor="#10B981"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#2E384D" />
+
+    <!-- 6 Rows (Each with 2 columns) -->
+    <!-- Row 1: KR200 / NQ100 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView android:id="@+id/w_item_1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="1.코스피200 +0.55%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+        <TextView android:id="@+id/w_item_2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="2.나스닥100 -3.48%" android:textColor="@color/stock_down" android:textSize="11sp" android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Row 2: Tech100 / Oil -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView android:id="@+id/w_item_3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="3.Tech100 +0.39%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+        <TextView android:id="@+id/w_item_4" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="4.Oil(WTI) -0.32%" android:textColor="@color/stock_down" android:textSize="11sp" android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Row 3: SKHX / SMSN -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView android:id="@+id/w_item_5" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="5.SK하이닉스 +1.53%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+        <TextView android:id="@+id/w_item_6" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="6.삼성전자 +1.41%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Row 4: SAMSUNGEM / MU -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView android:id="@+id/w_item_7" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="7.삼성전기 0.00%" android:textColor="@color/text_muted" android:textSize="11sp" android:textStyle="bold" />
+        <TextView android:id="@+id/w_item_8" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="8.마이크론 +0.82%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Row 5: PLTR / NVDA -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView android:id="@+id/w_item_9" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="9.팔란티어 +0.38%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+        <TextView android:id="@+id/w_item_10" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="10.엔비디아 +0.78%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Row 6: META / TSLA -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView android:id="@+id/w_item_11" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="11.메타 +0.16%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+        <TextView android:id="@+id/w_item_12" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="12.테슬라 +0.47%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+    </LinearLayout>
+
+</LinearLayout>
