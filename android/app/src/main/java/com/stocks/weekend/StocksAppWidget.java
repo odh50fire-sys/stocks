@@ -38,7 +38,7 @@ public class StocksAppWidget extends AppWidgetProvider {
     private static final String PREF_NAME = "stocks_widget_prefs";
     private static final String KEY_REALTIME_ON = "realtime_on";
 
-    private static final ExecutorService executor = Executors.newFixedThreadPool(4);
+    private static final ExecutorService executor = Executors.newSingleThreadExecutor();
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
@@ -65,24 +65,20 @@ public class StocksAppWidget extends AppWidgetProvider {
             updateToggleUi(context, next);
 
             if (next) {
-                // 실시간 ON: 즉시 1회 동기화 및 30초 주기 스케줄 시작
                 scheduleNextSync(context);
                 syncWidgetData(context);
             } else {
-                // 실시간 OFF: 스케줄 완전 취소, 네트워크 통신 절대 중지
                 cancelPeriodicSync(context);
             }
         } else if (ACTION_PERIODIC_SYNC.equals(action)) {
             boolean isRealtimeOn = prefs.getBoolean(KEY_REALTIME_ON, false);
             if (isRealtimeOn) {
                 syncWidgetData(context);
-                scheduleNextSync(context); // 다음 30초 후 재등록
+                scheduleNextSync(context);
             } else {
-                // OFF 상태인 경우 네트워크 통신 일절 하지 않음
                 cancelPeriodicSync(context);
             }
         } else if (ACTION_SYNC.equals(action)) {
-            // 수동 동기화 버튼 클릭 시 1회 갱신
             syncWidgetData(context);
         }
     }
@@ -96,7 +92,7 @@ public class StocksAppWidget extends AppWidgetProvider {
         PendingIntent pi = PendingIntent.getBroadcast(context, 200, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        long triggerAt = SystemClock.elapsedRealtime() + 30000; // 30초 후
+        long triggerAt = SystemClock.elapsedRealtime() + 30000;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi);
         } else {
@@ -181,38 +177,14 @@ public class StocksAppWidget extends AppWidgetProvider {
 
         if (appWidgetIds == null || appWidgetIds.length == 0) return;
 
-        // "동기화 중..." UI 피드백
         RemoteViews loadingViews = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
         loadingViews.setTextViewText(R.id.widget_sync_btn, "⏳ 갱신 중...");
         appWidgetManager.partiallyUpdateAppWidget(appWidgetIds, loadingViews);
 
         executor.execute(() -> {
             try {
-                final long nowTs = System.currentTimeMillis();
-                java.util.concurrent.Future<String> fWeekend = executor.submit(new java.util.concurrent.Callable<String>() {
-                    @Override
-                    public String call() {
-                        return fetchHttp("https://hlkr.co.kr/api/weekend-session?_t=" + nowTs);
-                    }
-                });
-                java.util.concurrent.Future<String> fSnap = executor.submit(new java.util.concurrent.Callable<String>() {
-                    @Override
-                    public String call() {
-                        return fetchHttp("https://hlkr.co.kr/api/snapshot?_t=" + nowTs);
-                    }
-                });
-                java.util.concurrent.Future<String> fBinance = executor.submit(new java.util.concurrent.Callable<String>() {
-                    @Override
-                    public String call() {
-                        return fetchHttp("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=" + nowTs);
-                    }
-                });
-
-                String weekendJson = null, snapJson = null, binanceJson = null;
-                try { weekendJson = fWeekend.get(2500, java.util.concurrent.TimeUnit.MILLISECONDS); } catch (Exception ignored) {}
-                try { snapJson = fSnap.get(2500, java.util.concurrent.TimeUnit.MILLISECONDS); } catch (Exception ignored) {}
-                try { binanceJson = fBinance.get(2500, java.util.concurrent.TimeUnit.MILLISECONDS); } catch (Exception ignored) {}
-
+                long nowTs = System.currentTimeMillis();
+                String weekendJson = fetchHttp("https://hlkr.co.kr/api/weekend-session?_t=" + nowTs);
                 double kr200Chg = -1.76;
                 double nq100Chg = 0.52;
                 if (weekendJson != null) {
@@ -224,6 +196,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                 }
 
                 // Fetch Snapshot for SKHX, SMSN, MU, PLTR, NVDA, META, TSLA (Exact assets mapping)
+                String snapJson = fetchHttp("https://hlkr.co.kr/api/snapshot?_t=" + nowTs);
                 double skhxChg = -0.38, smsnChg = -2.68, muChg = 2.35, pltrChg = 0.49, nvdaChg = -0.09, metaChg = -0.09, tslaChg = 0.06;
                 double semRefKrw = 1196000;
                 if (snapJson != null) {
@@ -254,7 +227,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                 }
 
                 // Fetch Samsung EM Binance Futures
-                String binanceJson = fetchHttp("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT");
+                String binanceJson = fetchHttp("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=" + nowTs);
                 double semChg = -4.06;
                 if (binanceJson != null) {
                     try {
@@ -283,7 +256,6 @@ public class StocksAppWidget extends AppWidgetProvider {
                     try {
                         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
 
-                        // Attach pending intents
                         Intent appIntent = new Intent(context, MainActivity.class);
                         appIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
                         PendingIntent appPendingIntent = PendingIntent.getActivity(context, 0, appIntent,
@@ -302,7 +274,6 @@ public class StocksAppWidget extends AppWidgetProvider {
                                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
                         views.setOnClickPendingIntent(R.id.widget_sync_btn, syncPendingIntent);
 
-                        // Realtime Toggle UI
                         SharedPreferences sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
                         boolean isRealtime = sp.getBoolean(KEY_REALTIME_ON, false);
                         if (isRealtime) {
@@ -313,11 +284,9 @@ public class StocksAppWidget extends AppWidgetProvider {
                             views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#94A3B8"));
                         }
 
-                        // Update Sync Time
                         String timeStr = new SimpleDateFormat("HH:mm", Locale.KOREA).format(new Date());
                         views.setTextViewText(R.id.widget_sync_btn, "🔄 " + timeStr);
 
-                        // 12 Items
                         applyStock(views, R.id.w_item_1, finalKr200);
                         applyStock(views, R.id.w_item_2, finalNq100);
                         applyStock(views, R.id.w_item_3, 0.45);
@@ -361,8 +330,8 @@ public class StocksAppWidget extends AppWidgetProvider {
             URL url = new URL(urlString);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
-            conn.setConnectTimeout(6000);
-            conn.setReadTimeout(6000);
+            conn.setConnectTimeout(1500); // Fast 1.5s timeout
+            conn.setReadTimeout(1500);
             conn.setUseCaches(false);
             conn.setDefaultUseCaches(false);
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
@@ -370,7 +339,7 @@ public class StocksAppWidget extends AppWidgetProvider {
             conn.setRequestProperty("Pragma", "no-cache");
             if (conn.getResponseCode() == 200) {
                 InputStream in = conn.getInputStream();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
+                BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8), 8192);
                 StringBuilder sb = new StringBuilder();
                 String line;
                 while ((line = reader.readLine()) != null) {

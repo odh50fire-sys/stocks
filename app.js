@@ -110,53 +110,38 @@ async function fetchAllIndicators() {
 
   try {
     const ts = Date.now();
-    let weekendRaw = null, snapRaw = null, binanceRaw = null, igTechRaw = null, igOilRaw = null;
 
-    // High-Speed Native Parallel Batch Fetch (0.2~0.4s across all endpoints)
-    if (window.AndroidBridge && typeof window.AndroidBridge.fetchBatchAll === 'function') {
-      try {
-        const batchJsonStr = window.AndroidBridge.fetchBatchAll(
-          `https://hlkr.co.kr/api/weekend-session?_t=${ts}`,
-          `https://hlkr.co.kr/api/snapshot?_t=${ts}`,
-          `https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=${ts}`,
-          `https://www.ig.com/en/indices/markets-indices/weekend-us-tech-100-e1?_t=${ts}`,
-          `https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude?_t=${ts}`
-        );
-        if (batchJsonStr && !batchJsonStr.startsWith('ERROR:')) {
-          const bObj = JSON.parse(batchJsonStr);
-          weekendRaw = bObj.weekend;
-          snapRaw = bObj.snapshot;
-          binanceRaw = bObj.binance;
-          igTechRaw = bObj.igTech;
-          igOilRaw = bObj.igOil;
-        }
-      } catch (be) {
-        console.warn('Batch fetch fallback:', be);
-      }
-    }
+    // 1. Core High-Speed APIs (HLKR & Binance): Ultra-fast (0.1~0.2s)
+    const [weekendRes, snapRes, binanceSemText] = await Promise.allSettled([
+      httpGet(`https://hlkr.co.kr/api/weekend-session?_t=${ts}`),
+      httpGet(`https://hlkr.co.kr/api/snapshot?_t=${ts}`),
+      httpGet(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=${ts}`)
+    ]);
 
-    // Browser or fallback concurrent fetch
-    if (!weekendRaw && !snapRaw) {
-      const [wR, sR, bR, tR, oR] = await Promise.allSettled([
-        httpGet(`https://hlkr.co.kr/api/weekend-session?_t=${ts}`),
-        httpGet(`https://hlkr.co.kr/api/snapshot?_t=${ts}`),
-        httpGet(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=${ts}`),
+    // 2. IG.com APIs: Fast Non-Blocking (1.5s timeout)
+    let igTech = { price: 28505.4, changePct: 0.45 };
+    let igOil = { price: 10198.6, changePct: -0.32 };
+    try {
+      const [igTechRes, igOilRes] = await Promise.allSettled([
         httpGet(`https://www.ig.com/en/indices/markets-indices/weekend-us-tech-100-e1?_t=${ts}`),
         httpGet(`https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude?_t=${ts}`)
       ]);
-      if (wR.status === 'fulfilled') weekendRaw = wR.value;
-      if (sR.status === 'fulfilled') snapRaw = sR.value;
-      if (bR.status === 'fulfilled') binanceRaw = bR.value;
-      if (tR.status === 'fulfilled') igTechRaw = tR.value;
-      if (oR.status === 'fulfilled') igOilRaw = oR.value;
-    }
+      if (igTechRes.status === 'fulfilled' && igTechRes.value) {
+        const p = parseIgHtml(igTechRes.value);
+        if (p.price) igTech = p;
+      }
+      if (igOilRes.status === 'fulfilled' && igOilRes.value) {
+        const p = parseIgHtml(igOilRes.value);
+        if (p.price) igOil = p;
+      }
+    } catch (ignored) {}
 
     let weekendKospiPx = 887.49, weekendKospiChg = -1.76;
     let weekendNasdaqPx = 25291.5, weekendNasdaqChg = 0.52;
 
-    if (weekendRaw) {
+    if (weekendRes.status === 'fulfilled' && weekendRes.value) {
       try {
-        const wJson = JSON.parse(weekendRaw);
+        const wJson = JSON.parse(weekendRes.value);
         if (wJson.kospi) {
           weekendKospiPx = wJson.kospi.close || weekendKospiPx;
           weekendKospiChg = wJson.kospi.changePct !== undefined ? wJson.kospi.changePct : weekendKospiChg;
@@ -169,9 +154,9 @@ async function fetchAllIndicators() {
     }
 
     let snapMap = {};
-    if (snapRaw) {
+    if (snapRes.status === 'fulfilled' && snapRes.value) {
       try {
-        const sJson = JSON.parse(snapRaw);
+        const sJson = JSON.parse(snapRes.value);
         const assets = sJson.assets || sJson.items || [];
         if (Array.isArray(assets)) {
           assets.forEach(it => {
@@ -203,25 +188,13 @@ async function fetchAllIndicators() {
       return [fallbackPx, fallbackChg];
     }
 
-    let igTech = { price: 28505.4, changePct: 0.45 };
-    if (igTechRaw) {
-      const parsed = parseIgHtml(igTechRaw);
-      if (parsed.price) igTech = parsed;
-    }
-
-    let igOil = { price: 10198.6, changePct: -0.32 };
-    if (igOilRaw) {
-      const parsed = parseIgHtml(igOilRaw);
-      if (parsed.price) igOil = parsed;
-    }
-
     const [skhx_px, skhx_chg] = getStock('SKHX', 1061.2, -0.35);
     const [smsn_px, smsn_chg] = getStock('SMSN', 164.05, -2.68);
 
     let sem_px = 1147425, sem_chg = -4.06;
-    if (binanceRaw) {
+    if (binanceSemText.status === 'fulfilled' && binanceSemText.value) {
       try {
-        const bJson = JSON.parse(binanceRaw);
+        const bJson = JSON.parse(binanceSemText.value);
         const bUsd = parseFloat(bJson.lastPrice || '858.98');
         const fxRate = 1335.8;
         const perpKrw = bUsd * fxRate;
