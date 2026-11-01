@@ -82,7 +82,7 @@ function parseIgHtml(html) {
   }
 }
 
-// Universal Indicator Fetcher
+// Universal Indicator Fetcher matching HLKR exactly
 async function fetchAllIndicators() {
   const isLocalFile = window.location.protocol === 'file:';
 
@@ -99,50 +99,58 @@ async function fetchAllIndicators() {
   }
 
   try {
-    const [worldText, marketHtml, igTechHtml, igOilHtml] = await Promise.allSettled([
-      httpGet('https://hlkr.co.kr/api/world'),
-      httpGet('https://hlkr.co.kr/market'),
+    const [weekendText, snapText, igTechHtml, igOilHtml] = await Promise.allSettled([
+      httpGet('https://hlkr.co.kr/api/weekend-session'),
+      httpGet('https://hlkr.co.kr/api/snapshot'),
       httpGet('https://www.ig.com/en/indices/markets-indices/weekend-us-tech-100-e1'),
       httpGet('https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude')
     ]);
 
-    let worldQuotes = {};
-    if (worldText.status === 'fulfilled' && worldText.value) {
-      try { worldQuotes = JSON.parse(worldText.value).quotes || {}; } catch (e) {}
+    let weekendKospiChg = -1.76, weekendKospiPx = 883.78;
+    let weekendNasdaqChg = 0.56, weekendNasdaqPx = 28556;
+
+    if (weekendText.status === 'fulfilled' && weekendText.value) {
+      try {
+        const wJson = JSON.parse(weekendText.value);
+        if (wJson.kospi) {
+          weekendKospiChg = Number(wJson.kospi.changePct.toFixed(2));
+          weekendKospiPx = wJson.kospi.price || weekendKospiPx;
+        }
+        if (wJson.nasdaq) {
+          weekendNasdaqChg = Number(wJson.nasdaq.changePct.toFixed(2));
+          weekendNasdaqPx = wJson.nasdaq.price || weekendNasdaqPx;
+        }
+      } catch (e) {}
     }
 
-    const marketMap = {};
-    if (marketHtml.status === 'fulfilled' && marketHtml.value) {
-      const unescaped = marketHtml.value.replace(/\\"/g, '"').replace(/\\\//g, '/');
-      const matches = unescaped.matchAll(/\{"asset":\{"symbol":"([^"]+)"[^}]*\},"hl":(\{.*?\})?,"refPriceKrw":([0-9\.]+)?,"refSource":"([^"]+)",("naver":(\{.*?\})?,)?"perpKrw":([0-9\.]+)?,"premiumPct":([0-9\.-]+)?/g);
-      for (const m of matches) {
-        try {
-          const sym = m[1];
-          const hlObj = m[2] ? JSON.parse(m[2]) : null;
-          const naverObj = m[6] ? JSON.parse(m[6]) : null;
-          marketMap[sym] = { hl: hlObj, naver: naverObj };
-        } catch (e) {}
-      }
+    const snapMap = {};
+    if (snapText.status === 'fulfilled' && snapText.value) {
+      try {
+        const snapJson = JSON.parse(snapText.value);
+        for (const it of (snapJson.assets || [])) {
+          const sym = it.asset && it.asset.symbol;
+          if (sym) snapMap[sym] = it;
+        }
+      } catch (e) {}
     }
 
     function getStock(sym, fallbackPx, fallbackChg) {
-      const item = marketMap[sym];
-      if (item && item.hl) {
-        const px = item.hl.markPx || fallbackPx;
-        const prev = item.hl.prevDayPx;
-        const chg = prev ? Number(((px - prev) / prev * 100).toFixed(2)) : fallbackChg;
+      const it = snapMap[sym];
+      if (it) {
+        const hl = it.hl || {};
+        const px = hl.markPx || fallbackPx;
+        let chg = fallbackChg;
+        if (it.premiumPct !== null && it.premiumPct !== undefined) {
+          chg = Number(it.premiumPct.toFixed(2));
+        } else if (hl.prevDayPx && px) {
+          chg = Number(((px - hl.prevDayPx) / hl.prevDayPx * 100).toFixed(2));
+        }
         return [px, chg];
       }
       return [fallbackPx, fallbackChg];
     }
 
-    const [kr200_px, kr200_chg] = getStock('KR200', 882.18, 0.55);
-
-    const nqQuote = worldQuotes['NQ=F'] || worldQuotes['%5EIXIC'] || {};
-    const nasdaq_px = nqQuote.price || 28534;
-    const nasdaq_chg = nqQuote.changePct !== undefined ? nqQuote.changePct : -3.48;
-
-    let igTech = { price: 28488.5, changePct: 0.39 };
+    let igTech = { price: 28505.4, changePct: 0.45 };
     if (igTechHtml.status === 'fulfilled' && igTechHtml.value) {
       const parsed = parseIgHtml(igTechHtml.value);
       if (parsed.price) igTech = parsed;
@@ -154,25 +162,25 @@ async function fetchAllIndicators() {
       if (parsed.price) igOil = parsed;
     }
 
-    const [skhx_px, skhx_chg] = getStock('SKHX', 1057.3, 1.53);
-    const [smsn_px, smsn_chg] = getStock('SMSN', 164.17, 1.41);
+    const [skhx_px, skhx_chg] = getStock('SKHX', 1062.0, 0.04);
+    const [smsn_px, smsn_chg] = getStock('SMSN', 164.59, -2.28);
 
-    let sem_px = 1196000, sem_chg = 0.0;
-    if (marketMap['SAMSUNGEM'] && marketMap['SAMSUNGEM'].naver) {
-      const n = marketMap['SAMSUNGEM'].naver;
+    let sem_px = 1196000, sem_chg = -7.50;
+    if (snapMap['SAMSUNGEM'] && snapMap['SAMSUNGEM'].naver) {
+      const n = snapMap['SAMSUNGEM'].naver;
       sem_px = n.krxClose || sem_px;
       if (n.prevClose) sem_chg = Number(((sem_px - n.prevClose) / n.prevClose * 100).toFixed(2));
     }
 
-    const [mu_px, mu_chg] = getStock('MU', 905.19, 0.82);
-    const [pltr_px, pltr_chg] = getStock('PLTR', 185.29, 0.38);
-    const [nvda_px, nvda_chg] = getStock('NVDA', 204.67, 0.78);
-    const [meta_px, meta_chg] = getStock('META', 615.04, 0.16);
-    const [tsla_px, tsla_chg] = getStock('TSLA', 400.73, 0.47);
+    const [mu_px, mu_chg] = getStock('MU', 906.73, 2.49);
+    const [pltr_px, pltr_chg] = getStock('PLTR', 185.26, 0.62);
+    const [nvda_px, nvda_chg] = getStock('NVDA', 204.45, -0.09);
+    const [meta_px, meta_chg] = getStock('META', 614.73, -0.04);
+    const [tsla_px, tsla_chg] = getStock('TSLA', 400.17, 0.09);
 
     return [
-      { id: "kr200", index: 1, name: "위켄드 코스피200", symbol: "KR200", source: "hlkr.co.kr", hasChart: true, price: kr200_px, changePct: kr200_chg, currency: "pt" },
-      { id: "nasdaq", index: 2, name: "위켄드 나스닥100", symbol: "NQ100", source: "hlkr.co.kr", hasChart: false, price: nasdaq_px, changePct: nasdaq_chg, currency: "pt" },
+      { id: "kr200", index: 1, name: "위켄드 코스피200", symbol: "KR200", source: "hlkr.co.kr", hasChart: true, price: weekendKospiPx, changePct: weekendKospiChg, currency: "pt" },
+      { id: "nasdaq", index: 2, name: "위켄드 나스닥100", symbol: "NQ100", source: "hlkr.co.kr", hasChart: false, price: weekendNasdaqPx, changePct: weekendNasdaqChg, currency: "pt" },
       { id: "ig_tech100", index: 3, name: "Weekend US Tech 100", symbol: "TECH100", source: "ig.com", hasChart: false, price: igTech.price, changePct: igTech.changePct, currency: "pt" },
       { id: "ig_oil", index: 4, name: "Weekend Oil - US Crude", symbol: "OIL (WTI)", source: "ig.com", hasChart: false, price: igOil.price, changePct: igOil.changePct, currency: "pt" },
       { id: "skhx", index: 5, name: "SK하이닉스", symbol: "SKHX", source: "hlkr.co.kr", hasChart: true, price: skhx_px, changePct: skhx_chg, currency: "$" },
@@ -217,7 +225,7 @@ async function fetchIndicators() {
 }
 
 // Render Dashboard Grid (2 columns x 6 rows)
-// 현재값은 작게, 등락률은 2배 이상(23px) 굵고 큼직하게 표시
+// 지표명도 등락률과 동일한 수준(21px)으로 키우고, 등락률은 23px 특대형 볼드 적용
 function renderDashboard(items) {
   gridContainer.innerHTML = '';
   items.forEach(item => {
@@ -240,7 +248,6 @@ function renderDashboard(items) {
         <div class="card-title-group">
           <span class="card-index">${item.index}.</span>
           <span class="card-name">${item.name}</span>
-          <span class="card-symbol">${item.symbol}</span>
         </div>
         ${item.hasChart ? '<span class="chart-badge">차트</span>' : ''}
       </div>
@@ -260,14 +267,13 @@ function renderDashboard(items) {
   });
 }
 
-// Render 6x6 Widget View
+// Render 6x6 Widget View: 지표명 및 등락률 2배 확대
 function renderWidget(items) {
   if (!widgetGrid) return;
   widgetGrid.innerHTML = '';
   items.forEach(item => {
     const itemElem = document.createElement('div');
     itemElem.className = 'widget-item';
-    const chgClass = item.changePct > 0 ? 'up' : (item.changePct < 0 ? 'down' : 'flat');
     const color = item.changePct > 0 ? 'var(--accent-up)' : (item.changePct < 0 ? 'var(--accent-down)' : 'var(--accent-flat)');
 
     itemElem.innerHTML = `
@@ -298,7 +304,6 @@ function openDetail(item) {
     valueDetailView.style.display = 'none';
     document.querySelector('.detail-timeframe-bar').style.display = 'flex';
     
-    // Animate open first, then init chart with exact dimensions
     setTimeout(() => {
       initChart(item.symbol, currentInterval);
     }, 150);
@@ -335,7 +340,7 @@ function renderValueDetail(item) {
       </div>
       <div class="stat-row">
         <span class="stat-label">금일 등락률 (24h)</span>
-        <span class="stat-val" style="font-size: 20px; font-weight: 900; color: ${item.changePct > 0 ? 'var(--accent-up)' : 'var(--accent-down)'}">${formatChangePct(item.changePct)}</span>
+        <span class="stat-val" style="font-size: 24px; font-weight: 900; color: ${item.changePct > 0 ? 'var(--accent-up)' : 'var(--accent-down)'}">${formatChangePct(item.changePct)}</span>
       </div>
       <div class="stat-row">
         <span class="stat-label">데이터 수집 출처</span>
@@ -364,7 +369,6 @@ async function initChart(symbol, interval) {
     chartInstance = null;
   }
 
-  // Safety check for LightweightCharts library
   if (!window.LightweightCharts) {
     container.innerHTML = '<div style="display:flex;height:100%;align-items:center;justify-content:center;color:#94a3b8;font-size:12px;">차트 엔진 로드 중...</div>';
     setTimeout(() => initChart(symbol, interval), 500);

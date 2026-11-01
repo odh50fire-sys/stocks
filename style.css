@@ -186,28 +186,30 @@ html, body {
 .card-title-group {
   display: flex;
   align-items: baseline;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .card-index {
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 800;
   color: var(--text-sub);
 }
 
+/* 지표명 폰트 사이즈: 등락률과 대등한 18px 특대형 폰트로 확대! */
 .card-name {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 800;
   color: #ffffff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 
 .card-symbol {
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -569,27 +571,29 @@ html, body {
   min-width: 0;
 }
 
+/* 위젯 지표명 2배 확대 (기존 9px -> 17px) */
 .widget-item-name {
-  font-size: 9px;
-  font-weight: 700;
-  color: #e2e8f0;
+  font-size: 16.5px;
+  font-weight: 800;
+  color: #ffffff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 80px;
+  max-width: 130px;
+  letter-spacing: -0.02em;
 }
 
-/* 위젯 현재가 축소 (8px) */
+/* 위젯 현재가 축소 (8.5px) */
 .widget-item-price {
-  font-size: 8px;
+  font-size: 8.5px;
   font-weight: 500;
-  color: #64748b;
+  color: #94a3b8;
   font-feature-settings: "tnum";
 }
 
-/* 위젯 등락률 2배 확대 (18px) */
+/* 위젯 등락률 2배 이상 확대 (24px) */
 .widget-item-pct {
-  font-size: 18px;
+  font-size: 24px;
   font-weight: 900;
   font-feature-settings: "tnum";
   letter-spacing: -0.03em;
