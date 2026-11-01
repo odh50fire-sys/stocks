@@ -112,17 +112,46 @@ public class MainActivity extends AppCompatActivity {
 
         // Fast Parallel Batch Fetch: Executes all 5 queries simultaneously across threads (0.2~0.4s total)
         @JavascriptInterface
-        public String fetchBatchAll(String weekendUrl, String snapshotUrl, String binanceUrl, String igTechUrl, String igOilUrl) {
+        public String fetchBatchAll(final String weekendUrl, final String snapshotUrl, final String binanceUrl, final String igTechUrl, final String igOilUrl) {
             if (!isAppInForeground) {
                 return "ERROR:BACKGROUND_BLOCKED";
             }
 
             try {
-                Future<String> fWeekend = parallelPool.submit(() -> fastHttpGet(weekendUrl, 2500));
-                Future<String> fSnapshot = parallelPool.submit(() -> fastHttpGet(snapshotUrl, 2500));
-                Future<String> fBinance = parallelPool.submit(() -> fastHttpGet(binanceUrl, 2500));
-                Future<String> fIgTech = parallelPool.submit(() -> fastHttpGet(igTechUrl, 2500));
-                Future<String> fIgOil = parallelPool.submit(() -> fastHttpGet(igOilUrl, 2500));
+                Future<String> fWeekend = parallelPool.submit(new Callable<String>() {
+                    @Override
+                    public String call() {
+                        return fastHttpGet(weekendUrl, 2500);
+                    }
+                });
+
+                Future<String> fSnapshot = parallelPool.submit(new Callable<String>() {
+                    @Override
+                    public String call() {
+                        return fastHttpGet(snapshotUrl, 2500);
+                    }
+                });
+
+                Future<String> fBinance = parallelPool.submit(new Callable<String>() {
+                    @Override
+                    public String call() {
+                        return fastHttpGet(binanceUrl, 2500);
+                    }
+                });
+
+                Future<String> fIgTech = parallelPool.submit(new Callable<String>() {
+                    @Override
+                    public String call() {
+                        return fastHttpGet(igTechUrl, 2500);
+                    }
+                });
+
+                Future<String> fIgOil = parallelPool.submit(new Callable<String>() {
+                    @Override
+                    public String call() {
+                        return fastHttpGet(igOilUrl, 2500);
+                    }
+                });
 
                 JSONObject res = new JSONObject();
                 res.put("weekend", safeGet(fWeekend, 2600));

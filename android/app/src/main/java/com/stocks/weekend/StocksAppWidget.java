@@ -188,10 +188,25 @@ public class StocksAppWidget extends AppWidgetProvider {
 
         executor.execute(() -> {
             try {
-                long nowTs = System.currentTimeMillis();
-                java.util.concurrent.Future<String> fWeekend = executor.submit(() -> fetchHttp("https://hlkr.co.kr/api/weekend-session?_t=" + nowTs));
-                java.util.concurrent.Future<String> fSnap = executor.submit(() -> fetchHttp("https://hlkr.co.kr/api/snapshot?_t=" + nowTs));
-                java.util.concurrent.Future<String> fBinance = executor.submit(() -> fetchHttp("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=" + nowTs));
+                final long nowTs = System.currentTimeMillis();
+                java.util.concurrent.Future<String> fWeekend = executor.submit(new java.util.concurrent.Callable<String>() {
+                    @Override
+                    public String call() {
+                        return fetchHttp("https://hlkr.co.kr/api/weekend-session?_t=" + nowTs);
+                    }
+                });
+                java.util.concurrent.Future<String> fSnap = executor.submit(new java.util.concurrent.Callable<String>() {
+                    @Override
+                    public String call() {
+                        return fetchHttp("https://hlkr.co.kr/api/snapshot?_t=" + nowTs);
+                    }
+                });
+                java.util.concurrent.Future<String> fBinance = executor.submit(new java.util.concurrent.Callable<String>() {
+                    @Override
+                    public String call() {
+                        return fetchHttp("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=" + nowTs);
+                    }
+                });
 
                 String weekendJson = null, snapJson = null, binanceJson = null;
                 try { weekendJson = fWeekend.get(2500, java.util.concurrent.TimeUnit.MILLISECONDS); } catch (Exception ignored) {}
