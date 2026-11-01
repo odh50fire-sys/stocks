@@ -13,17 +13,22 @@
   <!-- MOBILE DEVICE VIEWPORT (NO-SCROLL 100vh) -->
   <main class="mobile-viewport">
 
-    <!-- APP HEADER: LIVE 제거 & 명확한 동기화 버튼 배치 -->
+    <!-- APP HEADER: 실시간 ON/OFF 토글 & 수동 동기화 버튼 -->
     <header class="app-header">
       <div class="brand-section">
         <h1 class="brand-title">24H STOCKS</h1>
-        <span id="last-updated-time" class="sync-time-label">동기화 대기중</span>
+        <!-- 실시간 ON/OFF 토글 버튼 -->
+        <button id="realtime-toggle-btn" class="realtime-toggle-btn off" title="실시간 자동 갱신 ON/OFF">
+          <span class="toggle-indicator"></span>
+          <span id="realtime-toggle-text">실시간 OFF</span>
+        </button>
       </div>
       <div class="header-actions">
+        <span id="last-updated-time" class="sync-time-label">동기화 대기</span>
         <button id="widget-toggle-btn" class="header-btn" title="6x6 위젯 보기">
-          📱 6x6 위젯
+          📱 6x6
         </button>
-        <button id="refresh-btn" class="sync-main-btn" title="실시간 시세 동기화">
+        <button id="refresh-btn" class="sync-main-btn" title="실시간 시세 수동 동기화">
           <span class="sync-icon">🔄</span>
           <span class="sync-text">동기화</span>
         </button>
@@ -81,8 +86,11 @@
     <section id="widget-screen" class="widget-screen">
       <div class="widget-6x6-container">
         <div class="widget-header">
-          <span class="widget-title">GLOBAL 24H WIDGET (6x6)</span>
-          <span class="widget-sync-tag">🔄 동기화</span>
+          <span class="widget-title">GLOBAL 24H WIDGET</span>
+          <div style="display: flex; align-items: center; gap: 5px;">
+            <span id="widget-preview-realtime" class="widget-realtime-tag off">⚡ 실시간 OFF</span>
+            <span class="widget-sync-tag">🔄 동기화</span>
+          </div>
         </div>
         <div id="widget-grid" class="widget-grid">
           <!-- 12 Items in 2x6 layout (번호 제거 & 1열/2열 여백) -->

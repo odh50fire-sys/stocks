@@ -5,24 +5,39 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/bg_widget"
-    android:padding="10dp">
+    android:padding="8dp">
 
-    <!-- Header: LIVE 제거 & 동기화 버튼 추가 -->
+    <!-- Header: 24H STOCKS + 실시간 ON/OFF 토글 + 수동 동기화 버튼 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingBottom="6dp">
+        android:paddingBottom="5dp">
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="24H STOCKS (6x6)"
+            android:text="24H STOCKS"
             android:textColor="#38BDF8"
-            android:textSize="13sp"
+            android:textSize="12sp"
             android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_toggle_realtime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⚡ 실시간 OFF"
+            android:textColor="#94A3B8"
+            android:background="#1E293B"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:layout_marginEnd="5dp" />
 
         <TextView
             android:id="@+id/widget_sync_btn"
@@ -30,10 +45,11 @@
             android:layout_height="wrap_content"
             android:text="🔄 동기화"
             android:textColor="#E2E8F0"
-            android:textSize="11sp"
+            android:background="#0F172A"
+            android:textSize="10sp"
             android:textStyle="bold"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
             android:paddingTop="3dp"
             android:paddingBottom="3dp" />
     </LinearLayout>

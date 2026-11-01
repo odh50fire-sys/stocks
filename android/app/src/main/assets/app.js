@@ -14,6 +14,9 @@ let currentCandles = [];
 const gridContainer = document.getElementById('dashboard-grid');
 const lastUpdatedElem = document.getElementById('last-updated-time');
 const refreshBtn = document.getElementById('refresh-btn');
+const realtimeToggleBtn = document.getElementById('realtime-toggle-btn');
+const realtimeToggleText = document.getElementById('realtime-toggle-text');
+const widgetPreviewRealtime = document.getElementById('widget-preview-realtime');
 const widgetToggleBtn = document.getElementById('widget-toggle-btn');
 const widgetScreen = document.getElementById('widget-screen');
 const widgetCloseBtn = document.getElementById('widget-close-btn');
@@ -746,5 +749,83 @@ document.querySelectorAll('.tf-btn').forEach(btn => {
   });
 });
 
-// Initial single load on app launch (No periodic setInterval polling!)
+// ==========================================
+// REALTIME 30S AUTO-REFRESH ON / OFF LOGIC
+// ==========================================
+let isRealtimeEnabled = false;
+let realtimeIntervalId = null;
+
+function setRealtimeMode(enabled) {
+  isRealtimeEnabled = !!enabled;
+  try {
+    localStorage.setItem('STOCKS_REALTIME_MODE', isRealtimeEnabled ? '1' : '0');
+  } catch (e) {}
+
+  // Clear existing interval immediately
+  if (realtimeIntervalId) {
+    clearInterval(realtimeIntervalId);
+    realtimeIntervalId = null;
+  }
+
+  if (isRealtimeEnabled) {
+    // 실시간 ON 모드: 30초 주기 자동 갱신 시작
+    if (realtimeToggleBtn) {
+      realtimeToggleBtn.className = 'realtime-toggle-btn on';
+      if (realtimeToggleText) realtimeToggleText.textContent = '실시간 ON (30s)';
+    }
+    if (widgetPreviewRealtime) {
+      widgetPreviewRealtime.className = 'widget-realtime-tag on';
+      widgetPreviewRealtime.textContent = '⚡ 실시간 ON (30s)';
+    }
+
+    // 1회 즉시 갱신
+    fetchIndicators();
+
+    // 30초 주기로만 자동 갱신
+    realtimeIntervalId = setInterval(() => {
+      if (isRealtimeEnabled) {
+        fetchIndicators();
+      } else {
+        clearInterval(realtimeIntervalId);
+        realtimeIntervalId = null;
+      }
+    }, 30000);
+  } else {
+    // 실시간 OFF 모드: 타이머 완전 중지, 절대 백그라운드 네트워크 데이터 사용 안 함!
+    if (realtimeToggleBtn) {
+      realtimeToggleBtn.className = 'realtime-toggle-btn off';
+      if (realtimeToggleText) realtimeToggleText.textContent = '실시간 OFF';
+    }
+    if (widgetPreviewRealtime) {
+      widgetPreviewRealtime.className = 'widget-realtime-tag off';
+      widgetPreviewRealtime.textContent = '⚡ 실시간 OFF';
+    }
+  }
+}
+
+if (realtimeToggleBtn) {
+  realtimeToggleBtn.addEventListener('click', () => {
+    setRealtimeMode(!isRealtimeEnabled);
+  });
+}
+
+if (widgetPreviewRealtime) {
+  widgetPreviewRealtime.addEventListener('click', () => {
+    setRealtimeMode(!isRealtimeEnabled);
+  });
+}
+
+// Initial single load on app launch
 fetchIndicators();
+
+// Restore previous Realtime Mode preference (Default: OFF to save data)
+try {
+  const savedMode = localStorage.getItem('STOCKS_REALTIME_MODE');
+  if (savedMode === '1') {
+    setRealtimeMode(true);
+  } else {
+    setRealtimeMode(false);
+  }
+} catch (e) {
+  setRealtimeMode(false);
+}

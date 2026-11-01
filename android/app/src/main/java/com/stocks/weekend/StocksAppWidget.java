@@ -1,14 +1,18 @@
 package com.stocks.weekend;
 
+import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.widget.RemoteViews;
 
 import org.json.JSONArray;
@@ -29,6 +33,11 @@ import java.util.concurrent.Executors;
 public class StocksAppWidget extends AppWidgetProvider {
 
     public static final String ACTION_SYNC = "com.stocks.weekend.ACTION_SYNC";
+    public static final String ACTION_TOGGLE_REALTIME = "com.stocks.weekend.ACTION_TOGGLE_REALTIME";
+    public static final String ACTION_PERIODIC_SYNC = "com.stocks.weekend.ACTION_PERIODIC_SYNC";
+    private static final String PREF_NAME = "stocks_widget_prefs";
+    private static final String KEY_REALTIME_ON = "realtime_on";
+
     private static final ExecutorService executor = Executors.newSingleThreadExecutor();
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -43,9 +52,84 @@ public class StocksAppWidget extends AppWidgetProvider {
     public void onReceive(Context context, Intent intent) {
         super.onReceive(context, intent);
 
-        if (ACTION_SYNC.equals(intent.getAction())) {
+        String action = intent.getAction();
+        if (action == null) return;
+
+        SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+
+        if (ACTION_TOGGLE_REALTIME.equals(action)) {
+            boolean current = prefs.getBoolean(KEY_REALTIME_ON, false);
+            boolean next = !current;
+            prefs.edit().putBoolean(KEY_REALTIME_ON, next).apply();
+
+            updateToggleUi(context, next);
+
+            if (next) {
+                // 실시간 ON: 즉시 1회 동기화 및 30초 주기 스케줄 시작
+                scheduleNextSync(context);
+                syncWidgetData(context);
+            } else {
+                // 실시간 OFF: 스케줄 완전 취소, 네트워크 통신 절대 중지
+                cancelPeriodicSync(context);
+            }
+        } else if (ACTION_PERIODIC_SYNC.equals(action)) {
+            boolean isRealtimeOn = prefs.getBoolean(KEY_REALTIME_ON, false);
+            if (isRealtimeOn) {
+                syncWidgetData(context);
+                scheduleNextSync(context); // 다음 30초 후 재등록
+            } else {
+                // OFF 상태인 경우 네트워크 통신 일절 하지 않음
+                cancelPeriodicSync(context);
+            }
+        } else if (ACTION_SYNC.equals(action)) {
+            // 수동 동기화 버튼 클릭 시 1회 갱신
             syncWidgetData(context);
         }
+    }
+
+    private static void scheduleNextSync(Context context) {
+        AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        if (am == null) return;
+
+        Intent intent = new Intent(context, StocksAppWidget.class);
+        intent.setAction(ACTION_PERIODIC_SYNC);
+        PendingIntent pi = PendingIntent.getBroadcast(context, 200, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        long triggerAt = SystemClock.elapsedRealtime() + 30000; // 30초 후
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi);
+        } else {
+            am.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi);
+        }
+    }
+
+    private static void cancelPeriodicSync(Context context) {
+        AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        if (am == null) return;
+
+        Intent intent = new Intent(context, StocksAppWidget.class);
+        intent.setAction(ACTION_PERIODIC_SYNC);
+        PendingIntent pi = PendingIntent.getBroadcast(context, 200, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        am.cancel(pi);
+    }
+
+    private static void updateToggleUi(Context context, boolean isRealtimeOn) {
+        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(context);
+        ComponentName widgetComponent = new ComponentName(context, StocksAppWidget.class);
+        int[] appWidgetIds = appWidgetManager.getAppWidgetIds(widgetComponent);
+        if (appWidgetIds == null || appWidgetIds.length == 0) return;
+
+        RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
+        if (isRealtimeOn) {
+            views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 ON (30s)");
+            views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#10B981"));
+        } else {
+            views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 OFF");
+            views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#94A3B8"));
+        }
+        appWidgetManager.partiallyUpdateAppWidget(appWidgetIds, views);
     }
 
     static void updateAppWidget(Context context, AppWidgetManager appWidgetManager, int appWidgetId) {
@@ -59,12 +143,30 @@ public class StocksAppWidget extends AppWidgetProvider {
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             views.setOnClickPendingIntent(R.id.widget_root, appPendingIntent);
 
-            // Click Sync button -> Trigger ACTION_SYNC broadcast
+            // Click Toggle Realtime -> ACTION_TOGGLE_REALTIME
+            Intent toggleIntent = new Intent(context, StocksAppWidget.class);
+            toggleIntent.setAction(ACTION_TOGGLE_REALTIME);
+            PendingIntent togglePendingIntent = PendingIntent.getBroadcast(context, 101, toggleIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            views.setOnClickPendingIntent(R.id.widget_toggle_realtime, togglePendingIntent);
+
+            // Click Sync button -> ACTION_SYNC
             Intent syncIntent = new Intent(context, StocksAppWidget.class);
             syncIntent.setAction(ACTION_SYNC);
             PendingIntent syncPendingIntent = PendingIntent.getBroadcast(context, 100, syncIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             views.setOnClickPendingIntent(R.id.widget_sync_btn, syncPendingIntent);
+
+            // Reflect current Realtime ON/OFF state
+            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            boolean isRealtimeOn = prefs.getBoolean(KEY_REALTIME_ON, false);
+            if (isRealtimeOn) {
+                views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 ON (30s)");
+                views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#10B981"));
+            } else {
+                views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 OFF");
+                views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#94A3B8"));
+            }
 
             appWidgetManager.updateAppWidget(appWidgetId, views);
         } catch (Exception e) {
@@ -79,7 +181,7 @@ public class StocksAppWidget extends AppWidgetProvider {
 
         if (appWidgetIds == null || appWidgetIds.length == 0) return;
 
-        // Set "갱신 중..." feedback
+        // "동기화 중..." UI 피드백
         RemoteViews loadingViews = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
         loadingViews.setTextViewText(R.id.widget_sync_btn, "⏳ 갱신 중...");
         appWidgetManager.partiallyUpdateAppWidget(appWidgetIds, loadingViews);
@@ -156,12 +258,18 @@ public class StocksAppWidget extends AppWidgetProvider {
                     try {
                         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
 
-                        // Attach pending intents again
+                        // Attach pending intents
                         Intent appIntent = new Intent(context, MainActivity.class);
                         appIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
                         PendingIntent appPendingIntent = PendingIntent.getActivity(context, 0, appIntent,
                                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
                         views.setOnClickPendingIntent(R.id.widget_root, appPendingIntent);
+
+                        Intent toggleIntent = new Intent(context, StocksAppWidget.class);
+                        toggleIntent.setAction(ACTION_TOGGLE_REALTIME);
+                        PendingIntent togglePendingIntent = PendingIntent.getBroadcast(context, 101, toggleIntent,
+                                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                        views.setOnClickPendingIntent(R.id.widget_toggle_realtime, togglePendingIntent);
 
                         Intent syncIntent = new Intent(context, StocksAppWidget.class);
                         syncIntent.setAction(ACTION_SYNC);
@@ -169,33 +277,33 @@ public class StocksAppWidget extends AppWidgetProvider {
                                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
                         views.setOnClickPendingIntent(R.id.widget_sync_btn, syncPendingIntent);
 
+                        // Realtime Toggle UI
+                        SharedPreferences sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+                        boolean isRealtime = sp.getBoolean(KEY_REALTIME_ON, false);
+                        if (isRealtime) {
+                            views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 ON (30s)");
+                            views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#10B981"));
+                        } else {
+                            views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 OFF");
+                            views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#94A3B8"));
+                        }
+
                         // Update Sync Time
                         String timeStr = new SimpleDateFormat("HH:mm", Locale.KOREA).format(new Date());
                         views.setTextViewText(R.id.widget_sync_btn, "🔄 " + timeStr);
 
-                        // 1: 코스피200
+                        // 12 Items
                         applyStock(views, R.id.w_item_1, finalKr200);
-                        // 2: 나스닥100
                         applyStock(views, R.id.w_item_2, finalNq100);
-                        // 3: Tech 100 (+0.45%)
                         applyStock(views, R.id.w_item_3, 0.45);
-                        // 4: Oil (-0.32%)
                         applyStock(views, R.id.w_item_4, -0.32);
-                        // 5: SK하이닉스
                         applyStock(views, R.id.w_item_5, finalSkhx);
-                        // 6: 삼성전자
                         applyStock(views, R.id.w_item_6, finalSmsn);
-                        // 7: 삼성전기
                         applyStock(views, R.id.w_item_7, finalSem);
-                        // 8: 마이크론
                         applyStock(views, R.id.w_item_8, finalMu);
-                        // 9: 팔란티어
                         applyStock(views, R.id.w_item_9, finalPltr);
-                        // 10: 엔비디아
                         applyStock(views, R.id.w_item_10, finalNvda);
-                        // 11: 메타
                         applyStock(views, R.id.w_item_11, finalMeta);
-                        // 12: 테슬라
                         applyStock(views, R.id.w_item_12, finalTsla);
 
                         appWidgetManager.updateAppWidget(appWidgetIds, views);
