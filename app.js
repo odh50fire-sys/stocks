@@ -88,6 +88,12 @@ function parseIgHtml(html) {
 
 // Universal Indicator Fetcher matching HLKR exactly
 async function fetchAllIndicators() {
+  // If app is in background, completely skip network fetching to save 100% battery
+  if (!isAppInForeground || (typeof document !== 'undefined' && document.hidden)) {
+    console.log('[Battery Saver] Skipping network fetch: app is in background.');
+    return [];
+  }
+
   const isLocalFile = window.location.protocol === 'file:';
 
   if (!isLocalFile && !window.AndroidBridge) {
@@ -752,10 +758,62 @@ document.querySelectorAll('.tf-btn').forEach(btn => {
 });
 
 // ==========================================
-// REALTIME 30S AUTO-REFRESH ON / OFF LOGIC
+// REALTIME 30S AUTO-REFRESH & STRICT FOREGROUND CHECK
+// (Zero battery & zero network consumption in background)
 // ==========================================
 let isRealtimeEnabled = false;
 let realtimeIntervalId = null;
+let isAppInForeground = true;
+
+// Foreground State Handler (Called by Native AndroidBridge or Web Visibility API)
+function onAppForegroundStateChange(inForeground) {
+  isAppInForeground = !!inForeground;
+
+  if (!isAppInForeground) {
+    // 앱이 백그라운드로 이동: 즉시 모든 주기적 타이머 완전 해제 (배터리 소모 0%)
+    if (realtimeIntervalId) {
+      clearInterval(realtimeIntervalId);
+      realtimeIntervalId = null;
+    }
+    console.log('[Battery Saver] App in background: Automatic sync halted.');
+  } else {
+    // 앱이 포그라운드로 복귀: 실시간 모드가 켜져있던 경우에만 타이머 재가동 및 1회 동기화
+    console.log('[Battery Saver] App returned to foreground.');
+    if (isRealtimeEnabled) {
+      startRealtimeTimer();
+      fetchIndicators();
+    }
+  }
+}
+
+// Window & Document Visibility Listeners (Universal support for WebView & Mobile Browsers)
+document.addEventListener('visibilitychange', () => {
+  onAppForegroundStateChange(!document.hidden);
+});
+window.addEventListener('blur', () => {
+  onAppForegroundStateChange(false);
+});
+window.addEventListener('focus', () => {
+  onAppForegroundStateChange(true);
+});
+
+function startRealtimeTimer() {
+  if (realtimeIntervalId) {
+    clearInterval(realtimeIntervalId);
+    realtimeIntervalId = null;
+  }
+  // Only start timer if app is currently in foreground
+  if (isAppInForeground && !document.hidden) {
+    realtimeIntervalId = setInterval(() => {
+      if (isRealtimeEnabled && isAppInForeground && !document.hidden) {
+        fetchIndicators();
+      } else {
+        clearInterval(realtimeIntervalId);
+        realtimeIntervalId = null;
+      }
+    }, 30000);
+  }
+}
 
 function setRealtimeMode(enabled) {
   isRealtimeEnabled = !!enabled;
@@ -763,14 +821,13 @@ function setRealtimeMode(enabled) {
     localStorage.setItem('STOCKS_REALTIME_MODE', isRealtimeEnabled ? '1' : '0');
   } catch (e) {}
 
-  // Clear existing interval immediately
   if (realtimeIntervalId) {
     clearInterval(realtimeIntervalId);
     realtimeIntervalId = null;
   }
 
   if (isRealtimeEnabled) {
-    // 실시간 ON 모드: 30초 주기 자동 갱신 시작
+    // 실시간 ON 모드: UI 반영 및 포그라운드일 때만 30초 주기 자동 갱신 시작
     if (realtimeToggleBtn) {
       realtimeToggleBtn.className = 'realtime-toggle-btn on';
       if (realtimeToggleText) realtimeToggleText.textContent = '실시간 ON (30s)';
@@ -780,18 +837,9 @@ function setRealtimeMode(enabled) {
       widgetPreviewRealtime.textContent = '⚡ 실시간 ON (30s)';
     }
 
-    // 1회 즉시 갱신
+    // 1회 즉시 갱신 및 타이머 시작
     fetchIndicators();
-
-    // 30초 주기로만 자동 갱신
-    realtimeIntervalId = setInterval(() => {
-      if (isRealtimeEnabled) {
-        fetchIndicators();
-      } else {
-        clearInterval(realtimeIntervalId);
-        realtimeIntervalId = null;
-      }
-    }, 30000);
+    startRealtimeTimer();
   } else {
     // 실시간 OFF 모드: 타이머 완전 중지, 절대 백그라운드 네트워크 데이터 사용 안 함!
     if (realtimeToggleBtn) {

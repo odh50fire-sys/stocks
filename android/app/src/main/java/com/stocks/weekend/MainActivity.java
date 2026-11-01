@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
+    private static volatile boolean isAppInForeground = false;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -39,7 +40,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-        // Native HTTP Bridge to bypass any CORS restrictions on Android
+        // Native HTTP Bridge with Foreground Check
         webView.addJavascriptInterface(new WebAppInterface(this), "AndroidBridge");
 
         webView.setWebViewClient(new WebViewClient());
@@ -47,6 +48,49 @@ public class MainActivity extends AppCompatActivity {
 
         // Load local standalone SPA assets
         webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        isAppInForeground = true;
+        if (webView != null) {
+            webView.onResume();
+            webView.resumeTimers();
+            // Inform JavaScript that the app is now in foreground
+            webView.evaluateJavascript("if (typeof onAppForegroundStateChange === 'function') onAppForegroundStateChange(true);", null);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        isAppInForeground = false;
+        if (webView != null) {
+            // Inform JavaScript before pause to cancel all intervals
+            webView.evaluateJavascript("if (typeof onAppForegroundStateChange === 'function') onAppForegroundStateChange(false);", null);
+            webView.onPause();
+            webView.pauseTimers(); // Completely halt all JavaScript timers at the OS level
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        isAppInForeground = false;
+        if (webView != null) {
+            webView.onPause();
+            webView.pauseTimers();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        isAppInForeground = false;
+        if (webView != null) {
+            webView.destroy();
+        }
+        super.onDestroy();
     }
 
     public static class WebAppInterface {
@@ -57,7 +101,17 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
+        public boolean isForeground() {
+            return isAppInForeground;
+        }
+
+        @JavascriptInterface
         public String fetchUrl(String urlString) {
+            // Strict Battery & Network Protection: If app is not in foreground, reject network call immediately!
+            if (!isAppInForeground) {
+                return "ERROR:BACKGROUND_BLOCKED";
+            }
+
             try {
                 URL url = new URL(urlString);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -90,7 +144,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
-        if (webView.canGoBack()) {
+        if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
             super.onBackPressed();
