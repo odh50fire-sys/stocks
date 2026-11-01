@@ -29,6 +29,26 @@ const valueDetailView = document.getElementById('value-detail-view');
 const legendMa5 = document.getElementById('legend-ma5');
 const legendMa20 = document.getElementById('legend-ma20');
 
+// Safe HTTP Get Helper (Supports AndroidBridge Native Network & Browser Fetch)
+async function httpGet(url) {
+  // 1. If running inside Android App with native AndroidBridge
+  if (window.AndroidBridge && typeof window.AndroidBridge.fetchUrl === 'function') {
+    try {
+      const res = window.AndroidBridge.fetchUrl(url);
+      if (res && !res.startsWith('ERROR:')) {
+        return res;
+      }
+    } catch (e) {
+      console.warn('AndroidBridge error:', e);
+    }
+  }
+
+  // 2. Standard Browser fetch
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return await response.text();
+}
+
 // Format Price
 function formatPrice(val, curr) {
   if (val === null || val === undefined || val === '-' || isNaN(val)) return '-';
@@ -50,12 +70,26 @@ function formatChangePct(pct) {
   return `${sign}${num.toFixed(2)}%`;
 }
 
-// Client-side Direct Fetch for Standalone APK (Fallback when no local server)
-async function fetchDirectIndicators() {
+// Scrape IG Price Ticket from HTML string
+function parseIgHtml(html) {
+  try {
+    const bidM = html.match(/data-field="BID"[^>]*>([^<]+)</);
+    const ofrM = html.match(/data-field="OFR"[^>]*>([^<]+)</);
+    const cpcM = html.match(/data-field="CPC"[^>]*>([^<]+)</);
+    const px = (bidM && bidM[1]) ? bidM[1].trim() : ((ofrM && ofrM[1]) ? ofrM[1].trim() : null);
+    const chg = (cpcM && cpcM[1]) ? parseFloat(cpcM[1].trim()) : 0.0;
+    return { price: px, changePct: chg };
+  } catch (e) {
+    return { price: null, changePct: 0.0 };
+  }
+}
+
+// Universal Indicator Fetcher (Local Server or Native Direct Scraper)
+async function fetchAllIndicators() {
   const isLocalFile = window.location.protocol === 'file:';
-  
-  // Try local server first if not file:
-  if (!isLocalFile) {
+
+  // If running on local python server (http://localhost:8080)
+  if (!isLocalFile && !window.AndroidBridge) {
     try {
       const res = await fetch('/api/indicators', { cache: 'no-store' });
       if (res.ok) {
@@ -63,24 +97,27 @@ async function fetchDirectIndicators() {
         if (data.items && data.items.length > 0) return data.items;
       }
     } catch (e) {
-      console.log('Local server unavailable, switching to direct client fetch');
+      console.log('Local server fallback');
     }
   }
 
-  // Direct fetch from hlkr.co.kr
+  // Native / Direct Fetch Mode
   try {
-    const [worldRes, marketRes] = await Promise.allSettled([
-      fetch('https://hlkr.co.kr/api/world', { cache: 'no-store' }).then(r => r.json()),
-      fetch('https://hlkr.co.kr/market', { cache: 'no-store' }).then(r => r.text())
+    const [worldText, marketHtml, igTechHtml, igOilHtml] = await Promise.allSettled([
+      httpGet('https://hlkr.co.kr/api/world'),
+      httpGet('https://hlkr.co.kr/market'),
+      httpGet('https://www.ig.com/en/indices/markets-indices/weekend-us-tech-100-e1'),
+      httpGet('https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude')
     ]);
 
-    const worldQuotes = worldRes.status === 'fulfilled' ? (worldRes.value.quotes || {}) : {};
-    const marketHtml = marketRes.status === 'fulfilled' ? marketRes.value : '';
+    let worldQuotes = {};
+    if (worldText.status === 'fulfilled' && worldText.value) {
+      try { worldQuotes = JSON.parse(worldText.value).quotes || {}; } catch (e) {}
+    }
 
-    // Parse marketHtml for hl snaps
     const marketMap = {};
-    if (marketHtml) {
-      const unescaped = marketHtml.replace(/\\"/g, '"').replace(/\\\//g, '/');
+    if (marketHtml.status === 'fulfilled' && marketHtml.value) {
+      const unescaped = marketHtml.value.replace(/\\"/g, '"').replace(/\\\//g, '/');
       const matches = unescaped.matchAll(/\{"asset":\{"symbol":"([^"]+)"[^}]*\},"hl":(\{.*?\})?,"refPriceKrw":([0-9\.]+)?,"refSource":"([^"]+)",("naver":(\{.*?\})?,)?"perpKrw":([0-9\.]+)?,"premiumPct":([0-9\.-]+)?/g);
       for (const m of matches) {
         try {
@@ -104,14 +141,27 @@ async function fetchDirectIndicators() {
     }
 
     const [kr200_px, kr200_chg] = getStock('KR200', 882.18, 0.55);
+
     const nqQuote = worldQuotes['NQ=F'] || worldQuotes['%5EIXIC'] || {};
     const nasdaq_px = nqQuote.price || 28534;
     const nasdaq_chg = nqQuote.changePct !== undefined ? nqQuote.changePct : -3.48;
 
+    // IG data
+    let igTech = { price: 28488.5, changePct: 0.39 };
+    if (igTechHtml.status === 'fulfilled' && igTechHtml.value) {
+      const parsed = parseIgHtml(igTechHtml.value);
+      if (parsed.price) igTech = parsed;
+    }
+
+    let igOil = { price: 10198.6, changePct: -0.32 };
+    if (igOilHtml.status === 'fulfilled' && igOilHtml.value) {
+      const parsed = parseIgHtml(igOilHtml.value);
+      if (parsed.price) igOil = parsed;
+    }
+
     const [skhx_px, skhx_chg] = getStock('SKHX', 1057.3, 1.53);
     const [smsn_px, smsn_chg] = getStock('SMSN', 164.17, 1.41);
-    
-    // Samsung EM from naver
+
     let sem_px = 1196000, sem_chg = 0.0;
     if (marketMap['SAMSUNGEM'] && marketMap['SAMSUNGEM'].naver) {
       const n = marketMap['SAMSUNGEM'].naver;
@@ -128,8 +178,8 @@ async function fetchDirectIndicators() {
     return [
       { id: "kr200", index: 1, name: "위켄드 코스피200", symbol: "KR200", source: "hlkr.co.kr", hasChart: true, price: kr200_px, changePct: kr200_chg, currency: "pt" },
       { id: "nasdaq", index: 2, name: "위켄드 나스닥100", symbol: "NQ100", source: "hlkr.co.kr", hasChart: false, price: nasdaq_px, changePct: nasdaq_chg, currency: "pt" },
-      { id: "ig_tech100", index: 3, name: "Weekend US Tech 100", symbol: "TECH100", source: "ig.com", hasChart: false, price: 28488.5, changePct: 0.39, currency: "pt" },
-      { id: "ig_oil", index: 4, name: "Weekend Oil - US Crude", symbol: "OIL (WTI)", source: "ig.com", hasChart: false, price: 10198.6, changePct: -0.32, currency: "pt" },
+      { id: "ig_tech100", index: 3, name: "Weekend US Tech 100", symbol: "TECH100", source: "ig.com", hasChart: false, price: igTech.price, changePct: igTech.changePct, currency: "pt" },
+      { id: "ig_oil", index: 4, name: "Weekend Oil - US Crude", symbol: "OIL (WTI)", source: "ig.com", hasChart: false, price: igOil.price, changePct: igOil.changePct, currency: "pt" },
       { id: "skhx", index: 5, name: "SK하이닉스", symbol: "SKHX", source: "hlkr.co.kr", hasChart: true, price: skhx_px, changePct: skhx_chg, currency: "$" },
       { id: "smsn", index: 6, name: "삼성전자", symbol: "SMSN", source: "hlkr.co.kr", hasChart: true, price: smsn_px, changePct: smsn_chg, currency: "$" },
       { id: "samsungem", index: 7, name: "삼성전기", symbol: "SAMSUNGEM", source: "hlkr.co.kr", hasChart: false, price: sem_px, changePct: sem_chg, currency: "KRW" },
@@ -140,16 +190,17 @@ async function fetchDirectIndicators() {
       { id: "tsla", index: 12, name: "테슬라", symbol: "TSLA", source: "hlkr.co.kr/stocks/tsla", hasChart: true, price: tsla_px, changePct: tsla_chg, currency: "$" }
     ];
   } catch (err) {
-    console.error('Direct fetch error:', err);
+    console.error('All fetch error:', err);
     return [];
   }
 }
 
-// Fetch Indicators
+// Fetch and Render
 async function fetchIndicators() {
   try {
-    indicatorsData = await fetchDirectIndicators();
-    if (indicatorsData.length > 0) {
+    const data = await fetchAllIndicators();
+    if (data && data.length > 0) {
+      indicatorsData = data;
       renderDashboard(indicatorsData);
       renderWidget(indicatorsData);
 
@@ -404,27 +455,11 @@ function calculateSMA(data, period) {
 async function loadChartData(symbol, interval) {
   try {
     let rawCandles = [];
-    const isLocalFile = window.location.protocol === 'file:';
-    
-    // In local server, use proxy /api/candles; in file:// or fallback, fetch hlkr direct
-    let fetchUrl = `/api/candles?symbol=${symbol}&interval=${interval}`;
-    if (isLocalFile) {
-      fetchUrl = `https://hlkr.co.kr/api/candles/${symbol}?interval=${interval}`;
-    }
-
-    try {
-      const res = await fetch(fetchUrl, { cache: 'no-store' });
-      if (res.ok) {
-        const json = await res.json();
-        rawCandles = json.candles || [];
-      }
-    } catch (e) {
-      // Fallback to direct url
-      const res = await fetch(`https://hlkr.co.kr/api/candles/${symbol}?interval=${interval}`, { cache: 'no-store' });
-      if (res.ok) {
-        const json = await res.json();
-        rawCandles = json.candles || [];
-      }
+    const targetUrl = `https://hlkr.co.kr/api/candles/${symbol}?interval=${interval}`;
+    const rawText = await httpGet(targetUrl);
+    if (rawText) {
+      const json = JSON.parse(rawText);
+      rawCandles = json.candles || [];
     }
 
     if (rawCandles.length === 0) {
@@ -494,6 +529,21 @@ document.querySelectorAll('.tf-btn').forEach(btn => {
     }
   });
 });
+
+// Show immediate placeholder grid while loading
+gridContainer.innerHTML = Array.from({ length: 12 }).map((_, i) => `
+  <div class="stock-card" style="opacity: 0.6;">
+    <div class="card-top">
+      <div class="card-title-group">
+        <span class="card-name">불러오는 중...</span>
+      </div>
+    </div>
+    <div class="card-bottom">
+      <span class="card-price">--</span>
+      <div class="change-badge flat">0.00%</div>
+    </div>
+  </div>
+`).join('');
 
 fetchIndicators();
 setInterval(fetchIndicators, 5000);
