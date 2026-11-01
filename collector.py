@@ -119,7 +119,7 @@ def collect_all_12_indicators():
         {
             "id": "kr200",
             "index": 1,
-            "name": "위켄드 코스피200",
+            "name": "W 코스피200",
             "symbol": "KR200",
             "source": "hlkr.co.kr",
             "hasChart": True,
@@ -130,7 +130,7 @@ def collect_all_12_indicators():
         {
             "id": "nasdaq",
             "index": 2,
-            "name": "위켄드 나스닥100",
+            "name": "W 나스닥100",
             "symbol": "NQ100",
             "source": "hlkr.co.kr",
             "hasChart": False,
@@ -141,7 +141,7 @@ def collect_all_12_indicators():
         {
             "id": "ig_tech100",
             "index": 3,
-            "name": "Weekend US Tech 100",
+            "name": "W US Tech 100",
             "symbol": "TECH100",
             "source": "ig.com",
             "hasChart": False,
@@ -152,7 +152,7 @@ def collect_all_12_indicators():
         {
             "id": "ig_oil",
             "index": 4,
-            "name": "Weekend Oil - US Crude",
+            "name": "W Oil (Crude)",
             "symbol": "OIL (WTI)",
             "source": "ig.com",
             "hasChart": False,

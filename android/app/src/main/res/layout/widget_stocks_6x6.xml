@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingBottom="5dp">
+        android:paddingBottom="6dp">
 
         <TextView
             android:layout_width="0dp"
@@ -54,38 +54,80 @@
             android:paddingBottom="3dp" />
     </LinearLayout>
 
-    <!-- 6 Rows (Each with 2 columns, separated by 16dp margin) -->
-    <!-- Row 1: 코스피200 / 나스닥100 -->
+    <!-- 6 Rows (Each with 2 Distinct Card Boxes) -->
+    <!-- Row 1: W 코스피200 / W 나스닥100 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginEnd="8dp">
-            <TextView android:id="@+id/w_sub_1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="코스피200" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-1.76%" android:textColor="@color/stock_down" android:textSize="24sp" android:textStyle="bold" />
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <!-- Card 1 (Left) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_card_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginEnd="4dp">
+            <TextView android:id="@+id/w_sub_1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="W 코스피200" android:textColor="@color/text_white" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-1.76%" android:textColor="@color/stock_down" android:textSize="22sp" android:textStyle="bold" />
         </LinearLayout>
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginStart="8dp">
-            <TextView android:id="@+id/w_sub_2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="나스닥100" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.56%" android:textColor="@color/stock_up" android:textSize="24sp" android:textStyle="bold" />
+        <!-- Card 2 (Right) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_card_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginStart="4dp">
+            <TextView android:id="@+id/w_sub_2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="W 나스닥100" android:textColor="@color/text_white" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.56%" android:textColor="@color/stock_up" android:textSize="22sp" android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Row 2: Tech100 / Oil -->
+    <!-- Row 2: W Tech 100 / W Oil -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginEnd="8dp">
-            <TextView android:id="@+id/w_sub_3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Tech 100" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.45%" android:textColor="@color/stock_up" android:textSize="24sp" android:textStyle="bold" />
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <!-- Card 3 (Left) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_card_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginEnd="4dp">
+            <TextView android:id="@+id/w_sub_3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="W Tech 100" android:textColor="@color/text_white" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.45%" android:textColor="@color/stock_up" android:textSize="22sp" android:textStyle="bold" />
         </LinearLayout>
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginStart="8dp">
-            <TextView android:id="@+id/w_sub_4" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Oil (WTI)" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-0.32%" android:textColor="@color/stock_down" android:textSize="24sp" android:textStyle="bold" />
+        <!-- Card 4 (Right) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_card_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginStart="4dp">
+            <TextView android:id="@+id/w_sub_4" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="W Oil (Crude)" android:textColor="@color/text_white" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-0.32%" android:textColor="@color/stock_down" android:textSize="22sp" android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>
 
@@ -95,14 +137,35 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginEnd="8dp">
-            <TextView android:id="@+id/w_sub_5" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="SK하이닉스" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_5" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-0.01%" android:textColor="@color/stock_down" android:textSize="24sp" android:textStyle="bold" />
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <!-- Card 5 (Left) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_card_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginEnd="4dp">
+            <TextView android:id="@+id/w_sub_5" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="SK하이닉스" android:textColor="@color/text_white" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_5" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-0.01%" android:textColor="@color/stock_down" android:textSize="22sp" android:textStyle="bold" />
         </LinearLayout>
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginStart="8dp">
-            <TextView android:id="@+id/w_sub_6" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="삼성전자" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_6" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-2.28%" android:textColor="@color/stock_down" android:textSize="24sp" android:textStyle="bold" />
+        <!-- Card 6 (Right) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_card_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginStart="4dp">
+            <TextView android:id="@+id/w_sub_6" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="삼성전자" android:textColor="@color/text_white" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_6" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-2.28%" android:textColor="@color/stock_down" android:textSize="22sp" android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>
 
@@ -112,14 +175,35 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginEnd="8dp">
-            <TextView android:id="@+id/w_sub_7" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="삼성전기" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_7" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-4.06%" android:textColor="@color/stock_down" android:textSize="24sp" android:textStyle="bold" />
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <!-- Card 7 (Left) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_card_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginEnd="4dp">
+            <TextView android:id="@+id/w_sub_7" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="삼성전기" android:textColor="@color/text_white" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_7" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-4.06%" android:textColor="@color/stock_down" android:textSize="22sp" android:textStyle="bold" />
         </LinearLayout>
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginStart="8dp">
-            <TextView android:id="@+id/w_sub_8" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="마이크론" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_8" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+2.49%" android:textColor="@color/stock_up" android:textSize="24sp" android:textStyle="bold" />
+        <!-- Card 8 (Right) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_card_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginStart="4dp">
+            <TextView android:id="@+id/w_sub_8" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="마이크론" android:textColor="@color/text_white" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_8" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+2.49%" android:textColor="@color/stock_up" android:textSize="22sp" android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>
 
@@ -129,14 +213,35 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginEnd="8dp">
-            <TextView android:id="@+id/w_sub_9" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="팔란티어" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_9" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.62%" android:textColor="@color/stock_up" android:textSize="24sp" android:textStyle="bold" />
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+        <!-- Card 9 (Left) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_card_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginEnd="4dp">
+            <TextView android:id="@+id/w_sub_9" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="팔란티어" android:textColor="@color/text_white" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_9" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.62%" android:textColor="@color/stock_up" android:textSize="22sp" android:textStyle="bold" />
         </LinearLayout>
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginStart="8dp">
-            <TextView android:id="@+id/w_sub_10" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="엔비디아" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_10" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-0.09%" android:textColor="@color/stock_down" android:textSize="24sp" android:textStyle="bold" />
+        <!-- Card 10 (Right) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_card_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginStart="4dp">
+            <TextView android:id="@+id/w_sub_10" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="엔비디아" android:textColor="@color/text_white" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_10" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-0.09%" android:textColor="@color/stock_down" android:textSize="22sp" android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>
 
@@ -147,13 +252,33 @@
         android:layout_weight="1"
         android:orientation="horizontal"
         android:gravity="center_vertical">
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginEnd="8dp">
-            <TextView android:id="@+id/w_sub_11" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="메타" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_11" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-0.04%" android:textColor="@color/stock_down" android:textSize="24sp" android:textStyle="bold" />
+        <!-- Card 11 (Left) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_card_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginEnd="4dp">
+            <TextView android:id="@+id/w_sub_11" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="메타" android:textColor="@color/text_white" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_11" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-0.04%" android:textColor="@color/stock_down" android:textSize="22sp" android:textStyle="bold" />
         </LinearLayout>
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginStart="8dp">
-            <TextView android:id="@+id/w_sub_12" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="테슬라" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_12" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.09%" android:textColor="@color/stock_up" android:textSize="24sp" android:textStyle="bold" />
+        <!-- Card 12 (Right) -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/widget_card_bg"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginStart="4dp">
+            <TextView android:id="@+id/w_sub_12" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="테슬라" android:textColor="@color/text_white" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_12" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.09%" android:textColor="@color/stock_up" android:textSize="22sp" android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>
 

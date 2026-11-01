@@ -193,10 +193,10 @@ async function fetchAllIndicators() {
     const [tsla_px, tsla_chg] = getStock('TSLA', 400.17, 0.09);
 
     return [
-      { id: "kr200", index: 1, name: "위켄드 코스피200", symbol: "KR200", source: "hlkr.co.kr", hasChart: true, price: weekendKospiPx, changePct: weekendKospiChg, currency: "pt" },
-      { id: "nasdaq", index: 2, name: "위켄드 나스닥100", symbol: "NQ100", source: "hlkr.co.kr", hasChart: false, price: weekendNasdaqPx, changePct: weekendNasdaqChg, currency: "pt" },
-      { id: "ig_tech100", index: 3, name: "Weekend US Tech 100", symbol: "TECH100", source: "ig.com", hasChart: false, price: igTech.price, changePct: igTech.changePct, currency: "pt" },
-      { id: "ig_oil", index: 4, name: "Weekend Oil - US Crude", symbol: "OIL (WTI)", source: "ig.com", hasChart: false, price: igOil.price, changePct: igOil.changePct, currency: "pt" },
+      { id: "kr200", index: 1, name: "W 코스피200", symbol: "KR200", source: "hlkr.co.kr", hasChart: true, price: weekendKospiPx, changePct: weekendKospiChg, currency: "pt" },
+      { id: "nasdaq", index: 2, name: "W 나스닥100", symbol: "NQ100", source: "hlkr.co.kr", hasChart: false, price: weekendNasdaqPx, changePct: weekendNasdaqChg, currency: "pt" },
+      { id: "ig_tech100", index: 3, name: "W US Tech 100", symbol: "TECH100", source: "ig.com", hasChart: false, price: igTech.price, changePct: igTech.changePct, currency: "pt" },
+      { id: "ig_oil", index: 4, name: "W Oil (Crude)", symbol: "OIL (WTI)", source: "ig.com", hasChart: false, price: igOil.price, changePct: igOil.changePct, currency: "pt" },
       { id: "skhx", index: 5, name: "SK하이닉스", symbol: "SKHX", source: "hlkr.co.kr", hasChart: true, price: skhx_px, changePct: skhx_chg, currency: "$" },
       { id: "smsn", index: 6, name: "삼성전자", symbol: "SMSN", source: "hlkr.co.kr", hasChart: true, price: smsn_px, changePct: smsn_chg, currency: "$" },
       { id: "samsungem", index: 7, name: "삼성전기", symbol: "SAMSUNGEM", source: "hlkr.co.kr", hasChart: false, price: sem_px, changePct: sem_chg, currency: "KRW" },
@@ -265,6 +265,7 @@ function renderDashboard(items) {
     previousPrices[item.id] = currPx;
 
     const chgClass = item.changePct > 0 ? 'up' : (item.changePct < 0 ? 'down' : 'flat');
+    const chgColor = item.changePct > 0 ? '#ff3b30' : (item.changePct < 0 ? '#0a84ff' : '#8e8e93');
 
     card.innerHTML = `
       <div class="card-top">
@@ -280,7 +281,7 @@ function renderDashboard(items) {
           <span class="card-price">${formatPrice(item.price, item.currency)}</span>
         </div>
         <div class="card-change-box">
-          <span class="card-change ${chgClass}">${formatChangePct(item.changePct)}</span>
+          <span class="card-change ${chgClass}" style="color: ${chgColor} !important;">${formatChangePct(item.changePct)}</span>
         </div>
       </div>
     `;
@@ -297,15 +298,14 @@ function renderWidget(items) {
   items.forEach(item => {
     const itemElem = document.createElement('div');
     itemElem.className = 'widget-item';
-    const color = item.changePct > 0 ? 'var(--accent-up)' : (item.changePct < 0 ? 'var(--accent-down)' : 'var(--accent-flat)');
+    const chgColor = item.changePct > 0 ? '#ff3b30' : (item.changePct < 0 ? '#0a84ff' : '#8e8e93');
 
-    // 번호 제거: ${item.name}만 깔끔하게 표시
     itemElem.innerHTML = `
       <div class="widget-item-left">
         <span class="widget-item-name">${item.name}</span>
         <span class="widget-item-price">${formatPrice(item.price, item.currency)}</span>
       </div>
-      <span class="widget-item-pct" style="color: ${color}">${formatChangePct(item.changePct)}</span>
+      <span class="widget-item-pct" style="color: ${chgColor} !important;">${formatChangePct(item.changePct)}</span>
     `;
 
     itemElem.addEventListener('click', () => {
@@ -346,7 +346,9 @@ function updateDetailHeader(item) {
   detailPriceElem.textContent = `현재가: ${formatPrice(item.price, item.currency)}`;
 
   const chgClass = item.changePct > 0 ? 'up' : (item.changePct < 0 ? 'down' : 'flat');
+  const chgColor = item.changePct > 0 ? '#ff3b30' : (item.changePct < 0 ? '#0a84ff' : '#8e8e93');
   detailBadgeElem.className = `detail-main-change ${chgClass}`;
+  detailBadgeElem.style.color = chgColor;
   detailBadgeElem.textContent = formatChangePct(item.changePct);
 }
 
