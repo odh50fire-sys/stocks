@@ -109,6 +109,7 @@ async function fetchAllIndicators() {
   }
 
   try {
+    const ts = Date.now();
     const [
       weekendRes,
       snapRes,
@@ -116,11 +117,11 @@ async function fetchAllIndicators() {
       igTechHtml,
       igOilHtml
     ] = await Promise.allSettled([
-      httpGet('https://hlkr.co.kr/api/weekend-session'),
-      httpGet('https://hlkr.co.kr/api/snapshot'),
-      httpGet('https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT'),
-      httpGet('https://www.ig.com/en/indices/markets-indices/weekend-us-tech-100-e1'),
-      httpGet('https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude')
+      httpGet(`https://hlkr.co.kr/api/weekend-session?_t=${ts}`),
+      httpGet(`https://hlkr.co.kr/api/snapshot?_t=${ts}`),
+      httpGet(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=${ts}`),
+      httpGet(`https://www.ig.com/en/indices/markets-indices/weekend-us-tech-100-e1?_t=${ts}`),
+      httpGet(`https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude?_t=${ts}`)
     ]);
 
     let weekendKospiPx = 887.49, weekendKospiChg = -1.76;
@@ -144,19 +145,32 @@ async function fetchAllIndicators() {
     if (snapRes.status === 'fulfilled' && snapRes.value) {
       try {
         const sJson = JSON.parse(snapRes.value);
-        if (Array.isArray(sJson.items)) {
-          sJson.items.forEach(it => {
-            snapMap[it.symbol] = it;
+        const assets = sJson.assets || sJson.items || [];
+        if (Array.isArray(assets)) {
+          assets.forEach(it => {
+            const sym = (it.asset && it.asset.symbol) || it.symbol;
+            if (sym) {
+              const hl = it.hl || {};
+              const px = hl.midPx !== undefined ? hl.midPx : (hl.markPx !== undefined ? hl.markPx : it.perpPrice);
+              const chg = it.premiumPct !== undefined ? it.premiumPct : (it.change24hPct !== undefined ? it.change24hPct : null);
+              snapMap[sym] = {
+                price: px,
+                changePct: chg !== null && !isNaN(chg) ? Number(Number(chg).toFixed(2)) : null,
+                refPriceKrw: it.refPriceKrw
+              };
+            }
           });
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error('Error parsing snapshot assets:', e);
+      }
     }
 
     function getStock(sym, fallbackPx, fallbackChg) {
       const it = snapMap[sym];
       if (it) {
-        const px = it.perpPrice !== undefined ? it.perpPrice : fallbackPx;
-        const chg = it.premiumPct !== undefined ? it.premiumPct : (it.change24hPct !== undefined ? it.change24hPct : fallbackChg);
+        const px = it.price !== undefined && it.price !== null ? it.price : fallbackPx;
+        const chg = it.changePct !== undefined && it.changePct !== null ? it.changePct : fallbackChg;
         return [px, chg];
       }
       return [fallbackPx, fallbackChg];
@@ -174,8 +188,8 @@ async function fetchAllIndicators() {
       if (parsed.price) igOil = parsed;
     }
 
-    const [skhx_px, skhx_chg] = getStock('SKHX', 1062.0, -0.01);
-    const [smsn_px, smsn_chg] = getStock('SMSN', 164.59, -2.28);
+    const [skhx_px, skhx_chg] = getStock('SKHX', 1061.2, -0.35);
+    const [smsn_px, smsn_chg] = getStock('SMSN', 164.05, -2.68);
 
     let sem_px = 1147425, sem_chg = -4.06;
     if (binanceSemText.status === 'fulfilled' && binanceSemText.value) {
@@ -192,11 +206,11 @@ async function fetchAllIndicators() {
       } catch (e) {}
     }
 
-    const [mu_px, mu_chg] = getStock('MU', 906.73, 2.49);
-    const [pltr_px, pltr_chg] = getStock('PLTR', 185.26, 0.62);
-    const [nvda_px, nvda_chg] = getStock('NVDA', 204.45, -0.09);
-    const [meta_px, meta_chg] = getStock('META', 614.73, -0.04);
-    const [tsla_px, tsla_chg] = getStock('TSLA', 400.17, 0.09);
+    const [mu_px, mu_chg] = getStock('MU', 908.2, 2.35);
+    const [pltr_px, pltr_chg] = getStock('PLTR', 185.0, 0.49);
+    const [nvda_px, nvda_chg] = getStock('NVDA', 204.4, -0.09);
+    const [meta_px, meta_chg] = getStock('META', 614.5, -0.09);
+    const [tsla_px, tsla_chg] = getStock('TSLA', 400.0, 0.06);
 
     return [
       { id: "kr200", index: 1, name: "W 코스피200", symbol: "KR200", source: "hlkr.co.kr", hasChart: true, price: weekendKospiPx, changePct: weekendKospiChg, currency: "pt" },

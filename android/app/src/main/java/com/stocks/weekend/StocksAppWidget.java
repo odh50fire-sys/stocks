@@ -200,27 +200,30 @@ public class StocksAppWidget extends AppWidgetProvider {
                     } catch (Exception ignored) {}
                 }
 
-                // Fetch Snapshot for SKHX, SMSN, MU, PLTR, NVDA, META, TSLA
-                String snapJson = fetchHttp("https://hlkr.co.kr/api/snapshot");
-                double skhxChg = -0.01, smsnChg = -2.28, muChg = 2.49, pltrChg = 0.62, nvdaChg = -0.09, metaChg = -0.04, tslaChg = 0.09;
+                // Fetch Snapshot for SKHX, SMSN, MU, PLTR, NVDA, META, TSLA (Exact assets mapping)
+                String snapJson = fetchHttp("https://hlkr.co.kr/api/snapshot?_t=" + System.currentTimeMillis());
+                double skhxChg = -0.38, smsnChg = -2.68, muChg = 2.35, pltrChg = 0.49, nvdaChg = -0.09, metaChg = -0.09, tslaChg = 0.06;
                 double semRefKrw = 1196000;
                 if (snapJson != null) {
                     try {
                         JSONObject snapObj = new JSONObject(snapJson);
-                        JSONArray items = snapObj.optJSONArray("items");
-                        if (items != null) {
-                            for (int i = 0; i < items.length(); i++) {
-                                JSONObject it = items.getJSONObject(i);
-                                String sym = it.optString("symbol");
-                                double prem = it.optDouble("premiumPct", 0.0);
-                                if ("SKHX".equals(sym)) skhxChg = prem;
-                                else if ("SMSN".equals(sym)) smsnChg = prem;
-                                else if ("MU".equals(sym)) muChg = prem;
-                                else if ("PLTR".equals(sym)) pltrChg = prem;
-                                else if ("NVDA".equals(sym)) nvdaChg = prem;
-                                else if ("META".equals(sym)) metaChg = prem;
-                                else if ("TSLA".equals(sym)) tslaChg = prem;
-                                else if ("SAMSUNGEM".equals(sym)) {
+                        JSONArray assets = snapObj.optJSONArray("assets");
+                        if (assets != null) {
+                            for (int i = 0; i < assets.length(); i++) {
+                                JSONObject it = assets.getJSONObject(i);
+                                JSONObject assetObj = it.optJSONObject("asset");
+                                String sym = assetObj != null ? assetObj.optString("symbol") : it.optString("symbol");
+                                double prem = it.optDouble("premiumPct", Double.NaN);
+                                if (!Double.isNaN(prem)) {
+                                    if ("SKHX".equals(sym)) skhxChg = Math.round(prem * 100.0) / 100.0;
+                                    else if ("SMSN".equals(sym)) smsnChg = Math.round(prem * 100.0) / 100.0;
+                                    else if ("MU".equals(sym)) muChg = Math.round(prem * 100.0) / 100.0;
+                                    else if ("PLTR".equals(sym)) pltrChg = Math.round(prem * 100.0) / 100.0;
+                                    else if ("NVDA".equals(sym)) nvdaChg = Math.round(prem * 100.0) / 100.0;
+                                    else if ("META".equals(sym)) metaChg = Math.round(prem * 100.0) / 100.0;
+                                    else if ("TSLA".equals(sym)) tslaChg = Math.round(prem * 100.0) / 100.0;
+                                }
+                                if ("SAMSUNGEM".equals(sym)) {
                                     semRefKrw = it.optDouble("refPriceKrw", 1196000);
                                 }
                             }
@@ -338,7 +341,11 @@ public class StocksAppWidget extends AppWidgetProvider {
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(6000);
             conn.setReadTimeout(6000);
+            conn.setUseCaches(false);
+            conn.setDefaultUseCaches(false);
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+            conn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate");
+            conn.setRequestProperty("Pragma", "no-cache");
             if (conn.getResponseCode() == 200) {
                 InputStream in = conn.getInputStream();
                 BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
