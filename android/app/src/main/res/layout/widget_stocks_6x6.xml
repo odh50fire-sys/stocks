@@ -95,7 +95,7 @@
         android:gravity="center_vertical">
         <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:padding="2dp">
             <TextView android:id="@+id/w_sub_7" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="7.삼성전기" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />
-            <TextView android:id="@+id/w_item_7" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-7.50%" android:textColor="@color/stock_down" android:textSize="24sp" android:textStyle="bold" />
+            <TextView android:id="@+id/w_item_7" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-4.06%" android:textColor="@color/stock_down" android:textSize="24sp" android:textStyle="bold" />
         </LinearLayout>
         <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical" android:padding="2dp">
             <TextView android:id="@+id/w_sub_8" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="8.마이크론" android:textColor="@color/text_white" android:textSize="16sp" android:textStyle="bold" />

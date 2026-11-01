@@ -86,15 +86,23 @@ def collect_all_12_indicators():
     # 6. 삼성전자
     smsn_px, smsn_chg = parse_stock("SMSN", 164.59, -2.28)
 
-    # 7. 삼성전기
-    sem_item = snapshot_map.get("SAMSUNGEM", {})
-    sem_px = 1196000
-    sem_chg = 0.0
-    if sem_item.get("naver"):
-        n = sem_item["naver"]
-        sem_px = n.get("krxClose", sem_px)
-        if n.get("prevClose") and sem_px:
-            sem_chg = round((sem_px - n["prevClose"]) / n["prevClose"] * 100, 2)
+    # 7. 삼성전기 (HLKR uses Binance SAMSUNGEMUSDT * USD/KRW vs KRX Close)
+    sem_px = 1147425
+    sem_chg = -4.06
+    try:
+        b_res = json.loads(fetch_url("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT", timeout=5))
+        b_usd = float(b_res.get("lastPrice", 858.98))
+        fx_rate = 1335.8
+        snap_item = snapshot_map.get("SAMSUNGEM", {})
+        ref_krw = snap_item.get("refPriceKrw", 1196000)
+        # Check fx rate from snapshot
+        snap_json_fx = snap_item.get("naverUsdKrw") or 1335.8
+        perp_krw = b_usd * snap_json_fx
+        sem_px = int(round(perp_krw))
+        if ref_krw and ref_krw > 0:
+            sem_chg = round(((perp_krw - ref_krw) / ref_krw) * 100, 2)
+    except Exception as e:
+        print(f"Error calculating Binance SAMSUNGEM: {e}")
 
     # 8. 마이크론
     mu_px, mu_chg = parse_stock("MU", 906.65, 2.48)

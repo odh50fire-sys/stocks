@@ -99,11 +99,12 @@ async function fetchAllIndicators() {
   }
 
   try {
-    const [weekendText, snapText, igTechHtml, igOilHtml] = await Promise.allSettled([
+    const [weekendText, snapText, igTechHtml, igOilHtml, binanceSemText] = await Promise.allSettled([
       httpGet('https://hlkr.co.kr/api/weekend-session'),
       httpGet('https://hlkr.co.kr/api/snapshot'),
       httpGet('https://www.ig.com/en/indices/markets-indices/weekend-us-tech-100-e1'),
-      httpGet('https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude')
+      httpGet('https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude'),
+      httpGet('https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT')
     ]);
 
     let weekendKospiChg = -1.76, weekendKospiPx = 883.78;
@@ -165,11 +166,19 @@ async function fetchAllIndicators() {
     const [skhx_px, skhx_chg] = getStock('SKHX', 1062.0, 0.04);
     const [smsn_px, smsn_chg] = getStock('SMSN', 164.59, -2.28);
 
-    let sem_px = 1196000, sem_chg = -7.50;
-    if (snapMap['SAMSUNGEM'] && snapMap['SAMSUNGEM'].naver) {
-      const n = snapMap['SAMSUNGEM'].naver;
-      sem_px = n.krxClose || sem_px;
-      if (n.prevClose) sem_chg = Number(((sem_px - n.prevClose) / n.prevClose * 100).toFixed(2));
+    let sem_px = 1147425, sem_chg = -4.06;
+    if (binanceSemText.status === 'fulfilled' && binanceSemText.value) {
+      try {
+        const bJson = JSON.parse(binanceSemText.value);
+        const bUsd = parseFloat(bJson.lastPrice || '858.98');
+        const fxRate = 1335.8;
+        const perpKrw = bUsd * fxRate;
+        const refKrw = (snapMap['SAMSUNGEM'] && snapMap['SAMSUNGEM'].refPriceKrw) || 1196000;
+        sem_px = Math.round(perpKrw);
+        if (refKrw > 0) {
+          sem_chg = Number((((perpKrw - refKrw) / refKrw) * 100).toFixed(2));
+        }
+      } catch (e) {}
     }
 
     const [mu_px, mu_chg] = getStock('MU', 906.73, 2.49);
