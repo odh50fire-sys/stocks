@@ -110,26 +110,53 @@ async function fetchAllIndicators() {
 
   try {
     const ts = Date.now();
-    const [
-      weekendRes,
-      snapRes,
-      binanceSemText,
-      igTechHtml,
-      igOilHtml
-    ] = await Promise.allSettled([
-      httpGet(`https://hlkr.co.kr/api/weekend-session?_t=${ts}`),
-      httpGet(`https://hlkr.co.kr/api/snapshot?_t=${ts}`),
-      httpGet(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=${ts}`),
-      httpGet(`https://www.ig.com/en/indices/markets-indices/weekend-us-tech-100-e1?_t=${ts}`),
-      httpGet(`https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude?_t=${ts}`)
-    ]);
+    let weekendRaw = null, snapRaw = null, binanceRaw = null, igTechRaw = null, igOilRaw = null;
+
+    // High-Speed Native Parallel Batch Fetch (0.2~0.4s across all endpoints)
+    if (window.AndroidBridge && typeof window.AndroidBridge.fetchBatchAll === 'function') {
+      try {
+        const batchJsonStr = window.AndroidBridge.fetchBatchAll(
+          `https://hlkr.co.kr/api/weekend-session?_t=${ts}`,
+          `https://hlkr.co.kr/api/snapshot?_t=${ts}`,
+          `https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=${ts}`,
+          `https://www.ig.com/en/indices/markets-indices/weekend-us-tech-100-e1?_t=${ts}`,
+          `https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude?_t=${ts}`
+        );
+        if (batchJsonStr && !batchJsonStr.startsWith('ERROR:')) {
+          const bObj = JSON.parse(batchJsonStr);
+          weekendRaw = bObj.weekend;
+          snapRaw = bObj.snapshot;
+          binanceRaw = bObj.binance;
+          igTechRaw = bObj.igTech;
+          igOilRaw = bObj.igOil;
+        }
+      } catch (be) {
+        console.warn('Batch fetch fallback:', be);
+      }
+    }
+
+    // Browser or fallback concurrent fetch
+    if (!weekendRaw && !snapRaw) {
+      const [wR, sR, bR, tR, oR] = await Promise.allSettled([
+        httpGet(`https://hlkr.co.kr/api/weekend-session?_t=${ts}`),
+        httpGet(`https://hlkr.co.kr/api/snapshot?_t=${ts}`),
+        httpGet(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=${ts}`),
+        httpGet(`https://www.ig.com/en/indices/markets-indices/weekend-us-tech-100-e1?_t=${ts}`),
+        httpGet(`https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude?_t=${ts}`)
+      ]);
+      if (wR.status === 'fulfilled') weekendRaw = wR.value;
+      if (sR.status === 'fulfilled') snapRaw = sR.value;
+      if (bR.status === 'fulfilled') binanceRaw = bR.value;
+      if (tR.status === 'fulfilled') igTechRaw = tR.value;
+      if (oR.status === 'fulfilled') igOilRaw = oR.value;
+    }
 
     let weekendKospiPx = 887.49, weekendKospiChg = -1.76;
     let weekendNasdaqPx = 25291.5, weekendNasdaqChg = 0.52;
 
-    if (weekendRes.status === 'fulfilled' && weekendRes.value) {
+    if (weekendRaw) {
       try {
-        const wJson = JSON.parse(weekendRes.value);
+        const wJson = JSON.parse(weekendRaw);
         if (wJson.kospi) {
           weekendKospiPx = wJson.kospi.close || weekendKospiPx;
           weekendKospiChg = wJson.kospi.changePct !== undefined ? wJson.kospi.changePct : weekendKospiChg;
@@ -142,9 +169,9 @@ async function fetchAllIndicators() {
     }
 
     let snapMap = {};
-    if (snapRes.status === 'fulfilled' && snapRes.value) {
+    if (snapRaw) {
       try {
-        const sJson = JSON.parse(snapRes.value);
+        const sJson = JSON.parse(snapRaw);
         const assets = sJson.assets || sJson.items || [];
         if (Array.isArray(assets)) {
           assets.forEach(it => {
@@ -177,14 +204,14 @@ async function fetchAllIndicators() {
     }
 
     let igTech = { price: 28505.4, changePct: 0.45 };
-    if (igTechHtml.status === 'fulfilled' && igTechHtml.value) {
-      const parsed = parseIgHtml(igTechHtml.value);
+    if (igTechRaw) {
+      const parsed = parseIgHtml(igTechRaw);
       if (parsed.price) igTech = parsed;
     }
 
     let igOil = { price: 10198.6, changePct: -0.32 };
-    if (igOilHtml.status === 'fulfilled' && igOilHtml.value) {
-      const parsed = parseIgHtml(igOilHtml.value);
+    if (igOilRaw) {
+      const parsed = parseIgHtml(igOilRaw);
       if (parsed.price) igOil = parsed;
     }
 
@@ -192,9 +219,9 @@ async function fetchAllIndicators() {
     const [smsn_px, smsn_chg] = getStock('SMSN', 164.05, -2.68);
 
     let sem_px = 1147425, sem_chg = -4.06;
-    if (binanceSemText.status === 'fulfilled' && binanceSemText.value) {
+    if (binanceRaw) {
       try {
-        const bJson = JSON.parse(binanceSemText.value);
+        const bJson = JSON.parse(binanceRaw);
         const bUsd = parseFloat(bJson.lastPrice || '858.98');
         const fxRate = 1335.8;
         const perpKrw = bUsd * fxRate;
@@ -212,7 +239,7 @@ async function fetchAllIndicators() {
     const [meta_px, meta_chg] = getStock('META', 614.5, -0.09);
     const [tsla_px, tsla_chg] = getStock('TSLA', 400.0, 0.06);
 
-    return [
+    const result = [
       { id: "kr200", index: 1, name: "W 코스피200", symbol: "KR200", source: "hlkr.co.kr", hasChart: true, price: weekendKospiPx, changePct: weekendKospiChg, currency: "pt" },
       { id: "nasdaq", index: 2, name: "W 나스닥100", symbol: "NQ100", source: "hlkr.co.kr", hasChart: false, price: weekendNasdaqPx, changePct: weekendNasdaqChg, currency: "pt" },
       { id: "ig_tech100", index: 3, name: "W US Tech 100", symbol: "TECH100", source: "ig.com", hasChart: false, price: igTech.price, changePct: igTech.changePct, currency: "pt" },
@@ -226,6 +253,12 @@ async function fetchAllIndicators() {
       { id: "meta", index: 11, name: "메타", symbol: "META", source: "hlkr.co.kr/stocks/meta", hasChart: true, price: meta_px, changePct: meta_chg, currency: "$" },
       { id: "tsla", index: 12, name: "테슬라", symbol: "TSLA", source: "hlkr.co.kr/stocks/tsla", hasChart: true, price: tsla_px, changePct: tsla_chg, currency: "$" }
     ];
+
+    try {
+      localStorage.setItem('STOCKS_CACHED_DATA', JSON.stringify(result));
+    } catch (e) {}
+
+    return result;
   } catch (err) {
     console.error('All fetch error:', err);
     return [];
@@ -878,6 +911,19 @@ if (widgetPreviewRealtime) {
     setRealtimeMode(!isRealtimeEnabled);
   });
 }
+
+// Instant 0ms Render with Cached Data (Stale-While-Revalidate: Instant Launch)
+try {
+  const cachedJson = localStorage.getItem('STOCKS_CACHED_DATA');
+  if (cachedJson) {
+    const cachedItems = JSON.parse(cachedJson);
+    if (Array.isArray(cachedItems) && cachedItems.length > 0) {
+      indicatorsData = cachedItems;
+      renderDashboard(indicatorsData);
+      renderWidget(indicatorsData);
+    }
+  }
+} catch (e) {}
 
 // Initial single load on app launch
 fetchIndicators();

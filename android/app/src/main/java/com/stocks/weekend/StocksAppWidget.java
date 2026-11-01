@@ -38,7 +38,7 @@ public class StocksAppWidget extends AppWidgetProvider {
     private static final String PREF_NAME = "stocks_widget_prefs";
     private static final String KEY_REALTIME_ON = "realtime_on";
 
-    private static final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private static final ExecutorService executor = Executors.newFixedThreadPool(4);
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
@@ -188,8 +188,16 @@ public class StocksAppWidget extends AppWidgetProvider {
 
         executor.execute(() -> {
             try {
-                // Fetch HLKR Weekend session
-                String weekendJson = fetchHttp("https://hlkr.co.kr/api/weekend-session");
+                long nowTs = System.currentTimeMillis();
+                java.util.concurrent.Future<String> fWeekend = executor.submit(() -> fetchHttp("https://hlkr.co.kr/api/weekend-session?_t=" + nowTs));
+                java.util.concurrent.Future<String> fSnap = executor.submit(() -> fetchHttp("https://hlkr.co.kr/api/snapshot?_t=" + nowTs));
+                java.util.concurrent.Future<String> fBinance = executor.submit(() -> fetchHttp("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=" + nowTs));
+
+                String weekendJson = null, snapJson = null, binanceJson = null;
+                try { weekendJson = fWeekend.get(2500, java.util.concurrent.TimeUnit.MILLISECONDS); } catch (Exception ignored) {}
+                try { snapJson = fSnap.get(2500, java.util.concurrent.TimeUnit.MILLISECONDS); } catch (Exception ignored) {}
+                try { binanceJson = fBinance.get(2500, java.util.concurrent.TimeUnit.MILLISECONDS); } catch (Exception ignored) {}
+
                 double kr200Chg = -1.76;
                 double nq100Chg = 0.52;
                 if (weekendJson != null) {
@@ -201,7 +209,6 @@ public class StocksAppWidget extends AppWidgetProvider {
                 }
 
                 // Fetch Snapshot for SKHX, SMSN, MU, PLTR, NVDA, META, TSLA (Exact assets mapping)
-                String snapJson = fetchHttp("https://hlkr.co.kr/api/snapshot?_t=" + System.currentTimeMillis());
                 double skhxChg = -0.38, smsnChg = -2.68, muChg = 2.35, pltrChg = 0.49, nvdaChg = -0.09, metaChg = -0.09, tslaChg = 0.06;
                 double semRefKrw = 1196000;
                 if (snapJson != null) {
