@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/bg_widget"
-    android:padding="10dp">
+    android:padding="8dp">
 
     <!-- Header -->
     <LinearLayout
@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingBottom="6dp">
+        android:paddingBottom="4dp">
 
         <TextView
             android:layout_width="0dp"
@@ -34,11 +34,6 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#2E384D" />
-
     <!-- 6 Rows (Each with 2 columns) -->
     <!-- Row 1: KR200 / NQ100 -->
     <LinearLayout
@@ -47,8 +42,14 @@
         android:layout_weight="1"
         android:orientation="horizontal"
         android:gravity="center_vertical">
-        <TextView android:id="@+id/w_item_1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="1.코스피200 +0.55%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
-        <TextView android:id="@+id/w_item_2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="2.나스닥100 -3.48%" android:textColor="@color/stock_down" android:textSize="11sp" android:textStyle="bold" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:padding="2dp">
+            <TextView android:id="@+id/w_sub_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="1.코스피200 882.18" android:textColor="@color/text_muted" android:textSize="8sp" />
+            <TextView android:id="@+id/w_item_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.55%" android:textColor="@color/stock_up" android:textSize="17sp" android:textStyle="bold" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:padding="2dp">
+            <TextView android:id="@+id/w_sub_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="2.나스닥100 28,534" android:textColor="@color/text_muted" android:textSize="8sp" />
+            <TextView android:id="@+id/w_item_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-3.48%" android:textColor="@color/stock_down" android:textSize="17sp" android:textStyle="bold" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Row 2: Tech100 / Oil -->
@@ -58,8 +59,14 @@
         android:layout_weight="1"
         android:orientation="horizontal"
         android:gravity="center_vertical">
-        <TextView android:id="@+id/w_item_3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="3.Tech100 +0.39%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
-        <TextView android:id="@+id/w_item_4" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="4.Oil(WTI) -0.32%" android:textColor="@color/stock_down" android:textSize="11sp" android:textStyle="bold" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:padding="2dp">
+            <TextView android:id="@+id/w_sub_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="3.Tech100 28,488" android:textColor="@color/text_muted" android:textSize="8sp" />
+            <TextView android:id="@+id/w_item_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.39%" android:textColor="@color/stock_up" android:textSize="17sp" android:textStyle="bold" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:padding="2dp">
+            <TextView android:id="@+id/w_sub_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="4.Oil(WTI) 10,198" android:textColor="@color/text_muted" android:textSize="8sp" />
+            <TextView android:id="@+id/w_item_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="-0.32%" android:textColor="@color/stock_down" android:textSize="17sp" android:textStyle="bold" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Row 3: SKHX / SMSN -->
@@ -69,8 +76,14 @@
         android:layout_weight="1"
         android:orientation="horizontal"
         android:gravity="center_vertical">
-        <TextView android:id="@+id/w_item_5" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="5.SK하이닉스 +1.53%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
-        <TextView android:id="@+id/w_item_6" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="6.삼성전자 +1.41%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:padding="2dp">
+            <TextView android:id="@+id/w_sub_5" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="5.SK하이닉스 $1,057" android:textColor="@color/text_muted" android:textSize="8sp" />
+            <TextView android:id="@+id/w_item_5" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+1.53%" android:textColor="@color/stock_up" android:textSize="17sp" android:textStyle="bold" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:padding="2dp">
+            <TextView android:id="@+id/w_sub_6" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="6.삼성전자 $164.17" android:textColor="@color/text_muted" android:textSize="8sp" />
+            <TextView android:id="@+id/w_item_6" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+1.41%" android:textColor="@color/stock_up" android:textSize="17sp" android:textStyle="bold" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Row 4: SAMSUNGEM / MU -->
@@ -80,8 +93,14 @@
         android:layout_weight="1"
         android:orientation="horizontal"
         android:gravity="center_vertical">
-        <TextView android:id="@+id/w_item_7" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="7.삼성전기 0.00%" android:textColor="@color/text_muted" android:textSize="11sp" android:textStyle="bold" />
-        <TextView android:id="@+id/w_item_8" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="8.마이크론 +0.82%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:padding="2dp">
+            <TextView android:id="@+id/w_sub_7" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="7.삼성전기 ₩1,196,000" android:textColor="@color/text_muted" android:textSize="8sp" />
+            <TextView android:id="@+id/w_item_7" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0.00%" android:textColor="@color/text_muted" android:textSize="17sp" android:textStyle="bold" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:padding="2dp">
+            <TextView android:id="@+id/w_sub_8" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="8.마이크론 $905.19" android:textColor="@color/text_muted" android:textSize="8sp" />
+            <TextView android:id="@+id/w_item_8" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.82%" android:textColor="@color/stock_up" android:textSize="17sp" android:textStyle="bold" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Row 5: PLTR / NVDA -->
@@ -91,8 +110,14 @@
         android:layout_weight="1"
         android:orientation="horizontal"
         android:gravity="center_vertical">
-        <TextView android:id="@+id/w_item_9" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="9.팔란티어 +0.38%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
-        <TextView android:id="@+id/w_item_10" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="10.엔비디아 +0.78%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:padding="2dp">
+            <TextView android:id="@+id/w_sub_9" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="9.팔란티어 $185.29" android:textColor="@color/text_muted" android:textSize="8sp" />
+            <TextView android:id="@+id/w_item_9" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.38%" android:textColor="@color/stock_up" android:textSize="17sp" android:textStyle="bold" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:padding="2dp">
+            <TextView android:id="@+id/w_sub_10" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="10.엔비디아 $204.67" android:textColor="@color/text_muted" android:textSize="8sp" />
+            <TextView android:id="@+id/w_item_10" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.78%" android:textColor="@color/stock_up" android:textSize="17sp" android:textStyle="bold" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Row 6: META / TSLA -->
@@ -102,8 +127,14 @@
         android:layout_weight="1"
         android:orientation="horizontal"
         android:gravity="center_vertical">
-        <TextView android:id="@+id/w_item_11" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="11.메타 +0.16%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
-        <TextView android:id="@+id/w_item_12" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="12.테슬라 +0.47%" android:textColor="@color/stock_up" android:textSize="11sp" android:textStyle="bold" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:padding="2dp">
+            <TextView android:id="@+id/w_sub_11" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="11.메타 $615.04" android:textColor="@color/text_muted" android:textSize="8sp" />
+            <TextView android:id="@+id/w_item_11" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.16%" android:textColor="@color/stock_up" android:textSize="17sp" android:textStyle="bold" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical" android:padding="2dp">
+            <TextView android:id="@+id/w_sub_12" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="12.테슬라 $400.73" android:textColor="@color/text_muted" android:textSize="8sp" />
+            <TextView android:id="@+id/w_item_12" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="+0.47%" android:textColor="@color/stock_up" android:textSize="17sp" android:textStyle="bold" />
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>

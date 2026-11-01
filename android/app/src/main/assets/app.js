@@ -31,7 +31,6 @@ const legendMa20 = document.getElementById('legend-ma20');
 
 // Safe HTTP Get Helper (Supports AndroidBridge Native Network & Browser Fetch)
 async function httpGet(url) {
-  // 1. If running inside Android App with native AndroidBridge
   if (window.AndroidBridge && typeof window.AndroidBridge.fetchUrl === 'function') {
     try {
       const res = window.AndroidBridge.fetchUrl(url);
@@ -43,7 +42,6 @@ async function httpGet(url) {
     }
   }
 
-  // 2. Standard Browser fetch
   const response = await fetch(url, { cache: 'no-store' });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return await response.text();
@@ -84,11 +82,10 @@ function parseIgHtml(html) {
   }
 }
 
-// Universal Indicator Fetcher (Local Server or Native Direct Scraper)
+// Universal Indicator Fetcher
 async function fetchAllIndicators() {
   const isLocalFile = window.location.protocol === 'file:';
 
-  // If running on local python server (http://localhost:8080)
   if (!isLocalFile && !window.AndroidBridge) {
     try {
       const res = await fetch('/api/indicators', { cache: 'no-store' });
@@ -101,7 +98,6 @@ async function fetchAllIndicators() {
     }
   }
 
-  // Native / Direct Fetch Mode
   try {
     const [worldText, marketHtml, igTechHtml, igOilHtml] = await Promise.allSettled([
       httpGet('https://hlkr.co.kr/api/world'),
@@ -146,7 +142,6 @@ async function fetchAllIndicators() {
     const nasdaq_px = nqQuote.price || 28534;
     const nasdaq_chg = nqQuote.changePct !== undefined ? nqQuote.changePct : -3.48;
 
-    // IG data
     let igTech = { price: 28488.5, changePct: 0.39 };
     if (igTechHtml.status === 'fulfilled' && igTechHtml.value) {
       const parsed = parseIgHtml(igTechHtml.value);
@@ -222,6 +217,7 @@ async function fetchIndicators() {
 }
 
 // Render Dashboard Grid (2 columns x 6 rows)
+// 현재값은 작게, 등락률은 2배 이상(23px) 굵고 큼직하게 표시
 function renderDashboard(items) {
   gridContainer.innerHTML = '';
   items.forEach(item => {
@@ -242,20 +238,18 @@ function renderDashboard(items) {
     card.innerHTML = `
       <div class="card-top">
         <div class="card-title-group">
-          <div class="card-idx-name">
-            <span class="card-index">${item.index}</span>
-            <span class="card-name">${item.name}</span>
-          </div>
+          <span class="card-index">${item.index}.</span>
+          <span class="card-name">${item.name}</span>
           <span class="card-symbol">${item.symbol}</span>
         </div>
         ${item.hasChart ? '<span class="chart-badge">차트</span>' : ''}
       </div>
-      <div class="card-bottom">
+      <div class="card-body">
         <div class="card-price-box">
           <span class="card-price">${formatPrice(item.price, item.currency)}</span>
-          <span class="card-curr">${item.currency === 'KRW' ? '원' : (item.currency === '$' ? 'USD' : '지수')}</span>
+          <span class="card-curr">${item.currency === 'KRW' ? 'KRW' : (item.currency === '$' ? 'USD' : '지수')}</span>
         </div>
-        <div class="change-badge ${chgClass}">
+        <div class="card-change-large ${chgClass}">
           ${formatChangePct(item.changePct)}
         </div>
       </div>
@@ -273,14 +267,15 @@ function renderWidget(items) {
   items.forEach(item => {
     const itemElem = document.createElement('div');
     itemElem.className = 'widget-item';
+    const chgClass = item.changePct > 0 ? 'up' : (item.changePct < 0 ? 'down' : 'flat');
     const color = item.changePct > 0 ? 'var(--accent-up)' : (item.changePct < 0 ? 'var(--accent-down)' : 'var(--accent-flat)');
 
     itemElem.innerHTML = `
-      <span class="widget-item-name">${item.index}. ${item.name}</span>
-      <div class="widget-item-val">
+      <div class="widget-item-left">
+        <span class="widget-item-name">${item.index}. ${item.name}</span>
         <span class="widget-item-price">${formatPrice(item.price, item.currency)}</span>
-        <span class="widget-item-pct" style="color: ${color}">${formatChangePct(item.changePct)}</span>
       </div>
+      <span class="widget-item-pct" style="color: ${color}">${formatChangePct(item.changePct)}</span>
     `;
 
     itemElem.addEventListener('click', () => {
@@ -302,7 +297,11 @@ function openDetail(item) {
     chartWrapper.style.display = 'block';
     valueDetailView.style.display = 'none';
     document.querySelector('.detail-timeframe-bar').style.display = 'flex';
-    initChart(item.symbol, currentInterval);
+    
+    // Animate open first, then init chart with exact dimensions
+    setTimeout(() => {
+      initChart(item.symbol, currentInterval);
+    }, 150);
   } else {
     chartWrapper.style.display = 'none';
     valueDetailView.style.display = 'flex';
@@ -315,10 +314,10 @@ function openDetail(item) {
 function updateDetailHeader(item) {
   detailNameElem.textContent = `${item.index}. ${item.name}`;
   detailSubElem.textContent = `${item.symbol} · ${item.source}`;
-  detailPriceElem.textContent = formatPrice(item.price, item.currency);
+  detailPriceElem.textContent = `현재가: ${formatPrice(item.price, item.currency)}`;
 
   const chgClass = item.changePct > 0 ? 'up' : (item.changePct < 0 ? 'down' : 'flat');
-  detailBadgeElem.className = `change-badge ${chgClass}`;
+  detailBadgeElem.className = `detail-main-change ${chgClass}`;
   detailBadgeElem.textContent = formatChangePct(item.changePct);
 }
 
@@ -332,11 +331,11 @@ function renderValueDetail(item) {
       </div>
       <div class="stat-row">
         <span class="stat-label">실시간 현재가</span>
-        <span class="stat-val" style="color: #38bdf8; font-size: 16px;">${formatPrice(item.price, item.currency)}</span>
+        <span class="stat-val" style="color: #38bdf8; font-size: 15px;">${formatPrice(item.price, item.currency)}</span>
       </div>
       <div class="stat-row">
-        <span class="stat-label">등락률 (24h)</span>
-        <span class="stat-val" style="color: ${item.changePct > 0 ? 'var(--accent-up)' : 'var(--accent-down)'}">${formatChangePct(item.changePct)}</span>
+        <span class="stat-label">금일 등락률 (24h)</span>
+        <span class="stat-val" style="font-size: 20px; font-weight: 900; color: ${item.changePct > 0 ? 'var(--accent-up)' : 'var(--accent-down)'}">${formatChangePct(item.changePct)}</span>
       </div>
       <div class="stat-row">
         <span class="stat-label">데이터 수집 출처</span>
@@ -357,13 +356,31 @@ function renderValueDetail(item) {
 // Initialize Lightweight Charts
 async function initChart(symbol, interval) {
   const container = document.getElementById('tv-chart');
+  if (!container) return;
   container.innerHTML = '';
 
+  if (chartInstance) {
+    try { chartInstance.remove(); } catch (e) {}
+    chartInstance = null;
+  }
+
+  // Safety check for LightweightCharts library
+  if (!window.LightweightCharts) {
+    container.innerHTML = '<div style="display:flex;height:100%;align-items:center;justify-content:center;color:#94a3b8;font-size:12px;">차트 엔진 로드 중...</div>';
+    setTimeout(() => initChart(symbol, interval), 500);
+    return;
+  }
+
+  const containerW = container.clientWidth || 360;
+  const containerH = container.clientHeight || 340;
+
   const chartOptions = {
+    width: containerW,
+    height: containerH,
     layout: {
       textColor: '#94a3b8',
       background: { type: 'solid', color: '#08090c' },
-      fontSize: 11,
+      fontSize: 10.5,
       fontFamily: '-apple-system, BlinkMacSystemFont, "Pretendard", sans-serif'
     },
     grid: {
@@ -377,7 +394,7 @@ async function initChart(symbol, interval) {
     },
     rightPriceScale: {
       borderColor: '#1e2433',
-      scaleMargins: { top: 0.12, bottom: 0.22 }
+      scaleMargins: { top: 0.1, bottom: 0.2 }
     },
     timeScale: {
       borderColor: '#1e2433',
@@ -403,7 +420,7 @@ async function initChart(symbol, interval) {
     color: '#26a69a',
     priceFormat: { type: 'volume' },
     priceScaleId: '',
-    scaleMargins: { top: 0.8, bottom: 0 }
+    scaleMargins: { top: 0.82, bottom: 0 }
   });
 
   ma5Series = chartInstance.addLineSeries({
@@ -421,7 +438,7 @@ async function initChart(symbol, interval) {
   await loadChartData(symbol, interval);
 
   const resizeObserver = new ResizeObserver(() => {
-    if (chartInstance && container) {
+    if (chartInstance && container && container.clientWidth > 0 && container.clientHeight > 0) {
       chartInstance.applyOptions({
         width: container.clientWidth,
         height: container.clientHeight
@@ -437,6 +454,16 @@ async function initChart(symbol, interval) {
     if (m5 && legendMa5) legendMa5.textContent = `MA5: ${m5.value.toFixed(2)}`;
     if (m20 && legendMa20) legendMa20.textContent = `MA20: ${m20.value.toFixed(2)}`;
   });
+
+  setTimeout(() => {
+    if (chartInstance && container) {
+      chartInstance.applyOptions({
+        width: container.clientWidth,
+        height: container.clientHeight
+      });
+      chartInstance.timeScale().fitContent();
+    }
+  }, 250);
 }
 
 function calculateSMA(data, period) {
@@ -500,7 +527,7 @@ async function loadChartData(symbol, interval) {
 detailCloseBtn.addEventListener('click', () => {
   detailScreen.classList.remove('open');
   if (chartInstance) {
-    chartInstance.remove();
+    try { chartInstance.remove(); } catch (e) {}
     chartInstance = null;
   }
 });
@@ -529,21 +556,6 @@ document.querySelectorAll('.tf-btn').forEach(btn => {
     }
   });
 });
-
-// Show immediate placeholder grid while loading
-gridContainer.innerHTML = Array.from({ length: 12 }).map((_, i) => `
-  <div class="stock-card" style="opacity: 0.6;">
-    <div class="card-top">
-      <div class="card-title-group">
-        <span class="card-name">불러오는 중...</span>
-      </div>
-    </div>
-    <div class="card-bottom">
-      <span class="card-price">--</span>
-      <div class="change-badge flat">0.00%</div>
-    </div>
-  </div>
-`).join('');
 
 fetchIndicators();
 setInterval(fetchIndicators, 5000);
