@@ -64,7 +64,7 @@ html, body {
 .app-header {
   height: 48px;
   min-height: 48px;
-  padding: 0 14px;
+  padding: 0 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -76,12 +76,12 @@ html, body {
 
 .brand-section {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
 }
 
 .brand-title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 800;
   letter-spacing: -0.02em;
   background: linear-gradient(135deg, #ffffff 40%, #94a3b8);
@@ -89,31 +89,11 @@ html, body {
   -webkit-text-fill-color: transparent;
 }
 
-.live-pill {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 6px;
-  border-radius: 12px;
-  background: rgba(16, 185, 129, 0.12);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  font-size: 9.5px;
-  font-weight: 700;
-  color: #10b981;
-}
-
-.pulse-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #10b981;
-  animation: pulse 1.8s infinite;
-}
-
-@keyframes pulse {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-  70% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+.sync-time-label {
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 600;
+  font-feature-settings: 'tnum';
 }
 
 .header-actions {
@@ -127,8 +107,8 @@ html, body {
   border: 1px solid var(--bg-card-border);
   color: var(--text-muted);
   border-radius: 6px;
-  padding: 4px 8px;
-  font-size: 10.5px;
+  padding: 5px 8px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   display: flex;
@@ -138,6 +118,40 @@ html, body {
 }
 
 .header-btn:active {
+  transform: scale(0.95);
+  background: var(--bg-card-hover);
+}
+
+.sync-main-btn {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+  border: 1px solid #38bdf8;
+  color: #ffffff;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+  transition: all 0.15s ease;
+}
+
+.sync-main-btn:active {
+  transform: scale(0.94);
+  box-shadow: 0 1px 4px rgba(2, 132, 199, 0.3);
+}
+
+.sync-icon {
+  display: inline-block;
+  font-size: 12px;
+  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sync-icon.rotating {
+  transform: rotate(360deg);
+}
   background: var(--bg-card-hover);
   color: #fff;
   transform: scale(0.96);
@@ -538,12 +552,12 @@ html, body {
   color: #94a3b8;
 }
 
-.widget-badge {
-  font-size: 8.5px;
+.widget-sync-tag {
+  font-size: 9.5px;
   font-weight: 700;
-  padding: 1px 5px;
-  background: rgba(56, 189, 248, 0.15);
-  color: #38bdf8;
+  padding: 2px 7px;
+  background: #0284c7;
+  color: #ffffff;
   border-radius: 4px;
 }
 
@@ -552,15 +566,16 @@ html, body {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   grid-template-rows: repeat(6, 1fr);
-  gap: 3px;
-  padding-top: 3px;
+  column-gap: 12px;
+  row-gap: 3px;
+  padding-top: 4px;
 }
 
 .widget-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 6px;
+  padding: 0 4px;
   background: rgba(255, 255, 255, 0.02);
   border-radius: 6px;
 }

@@ -13,22 +13,19 @@
   <!-- MOBILE DEVICE VIEWPORT (NO-SCROLL 100vh) -->
   <main class="mobile-viewport">
 
-    <!-- APP HEADER -->
+    <!-- APP HEADER: LIVE 제거 & 명확한 동기화 버튼 배치 -->
     <header class="app-header">
       <div class="brand-section">
         <h1 class="brand-title">24H STOCKS</h1>
-        <div class="live-pill">
-          <span class="pulse-dot"></span>
-          <span>LIVE</span>
-        </div>
+        <span id="last-updated-time" class="sync-time-label">동기화 대기중</span>
       </div>
       <div class="header-actions">
-        <span id="last-updated-time" style="font-size: 9.5px; color: #64748b; font-feature-settings: 'tnum';">--:--:--</span>
         <button id="widget-toggle-btn" class="header-btn" title="6x6 위젯 보기">
           📱 6x6 위젯
         </button>
-        <button id="refresh-btn" class="header-btn" title="새로고침">
-          🔄
+        <button id="refresh-btn" class="sync-main-btn" title="실시간 시세 동기화">
+          <span class="sync-icon">🔄</span>
+          <span class="sync-text">동기화</span>
         </button>
       </div>
     </header>
@@ -69,7 +66,9 @@
           <span id="legend-ma5" class="legend-ma5">MA5: --</span>
           <span id="legend-ma20" class="legend-ma20">MA20: --</span>
         </div>
-        <div id="tv-chart" style="width: 100%; height: 100%;"></div>
+        <div id="tv-chart" style="width: 100%; height: 100%; position: relative;">
+          <!-- Canvas or TradingView will be mounted here -->
+        </div>
       </div>
 
       <!-- Value Only Details View (For non-chart items) -->
@@ -82,11 +81,11 @@
     <section id="widget-screen" class="widget-screen">
       <div class="widget-6x6-container">
         <div class="widget-header">
-          <span class="widget-title">GLOBAL 24H WIDGET</span>
-          <span class="widget-badge">6x6 SIZE</span>
+          <span class="widget-title">GLOBAL 24H WIDGET (6x6)</span>
+          <span class="widget-sync-tag">🔄 동기화</span>
         </div>
         <div id="widget-grid" class="widget-grid">
-          <!-- 12 Items in 2x6 layout -->
+          <!-- 12 Items in 2x6 layout (번호 제거 & 1열/2열 여백) -->
         </div>
       </div>
       <button id="widget-close-btn" class="widget-close-btn">앱으로 돌아가기</button>
@@ -94,13 +93,8 @@
 
   </main>
 
-  <!-- TradingView Lightweight Charts Library (Local or CDN Fallback) -->
+  <!-- TradingView Lightweight Charts Library -->
   <script src="lightweight-charts.standalone.production.js"></script>
-  <script>
-    if (!window.LightweightCharts) {
-      document.write('<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"><\/script>');
-    }
-  </script>
   <script src="app.js"></script>
 </body>
 </html>
