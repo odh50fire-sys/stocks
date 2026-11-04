@@ -170,6 +170,28 @@ public class StocksAppWidget extends AppWidgetProvider {
         }
     }
 
+    private static boolean isWeekendSession() {
+        java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Seoul"));
+        int day = cal.get(java.util.Calendar.DAY_OF_WEEK); // 1: Sunday, 7: Saturday, 2: Monday
+        int hour = cal.get(java.util.Calendar.HOUR_OF_DAY);
+        if (day == java.util.Calendar.SATURDAY && hour >= 6) return true;
+        if (day == java.util.Calendar.SUNDAY) return true;
+        if (day == java.util.Calendar.MONDAY && hour < 7) return true;
+        return false;
+    }
+
+    private static double parseMarketChange(String html, String key, double fallback) {
+        if (html == null) return fallback;
+        try {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile("\"key\":\"" + key + "\",.*?\"changePct\":([+\\-]?[0-9.]+)");
+            java.util.regex.Matcher m = p.matcher(html);
+            if (m.find()) {
+                return Math.round(Double.parseDouble(m.group(1)) * 100.0) / 100.0;
+            }
+        } catch (Exception ignored) {}
+        return fallback;
+    }
+
     private void syncWidgetData(Context context) {
         AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(context);
         ComponentName widgetComponent = new ComponentName(context, StocksAppWidget.class);
@@ -184,15 +206,74 @@ public class StocksAppWidget extends AppWidgetProvider {
         executor.execute(() -> {
             try {
                 long nowTs = System.currentTimeMillis();
-                String weekendJson = fetchHttp("https://hlkr.co.kr/api/weekend-session?_t=" + nowTs);
-                double kr200Chg = -1.76;
-                double nq100Chg = 0.52;
-                if (weekendJson != null) {
-                    try {
-                        JSONObject wObj = new JSONObject(weekendJson);
-                        if (wObj.has("kospi")) kr200Chg = wObj.getJSONObject("kospi").optDouble("changePct", kr200Chg);
-                        if (wObj.has("nasdaq")) nq100Chg = wObj.getJSONObject("nasdaq").optDouble("changePct", nq100Chg);
-                    } catch (Exception ignored) {}
+                boolean isWeekend = isWeekendSession();
+
+                String name1, name2, name3, name4;
+                double chg1 = 0.0, chg2 = 0.0, chg3 = 0.0, chg4 = 0.0;
+
+                if (isWeekend) {
+                    name1 = "W 코스피200";
+                    name2 = "W 나스닥100";
+                    name3 = "W Tech 100";
+                    name4 = "W Oil (Crude)";
+                    chg1 = -1.76;
+                    chg2 = 0.52;
+                    chg3 = 0.45;
+                    chg4 = -0.32;
+
+                    String weekendJson = fetchHttp("https://hlkr.co.kr/api/weekend-session?_t=" + nowTs);
+                    if (weekendJson != null) {
+                        try {
+                            JSONObject wObj = new JSONObject(weekendJson);
+                            if (wObj.has("kospi")) chg1 = wObj.getJSONObject("kospi").optDouble("changePct", chg1);
+                            if (wObj.has("nasdaq")) chg2 = wObj.getJSONObject("nasdaq").optDouble("changePct", chg2);
+                        } catch (Exception ignored) {}
+                    }
+                } else {
+                    name1 = "코스피 야간선물";
+                    name2 = "나스닥 100";
+                    name3 = "S&P 500";
+                    name4 = "WTI 원유";
+                    chg1 = 1.17;
+                    chg2 = -0.32;
+                    chg3 = -0.52;
+                    chg4 = -0.91;
+
+                    // 1. 코스피 야간선물
+                    String kFutJson = fetchHttp("https://hlkr.co.kr/api/kospi-futures?_t=" + nowTs);
+                    if (kFutJson != null) {
+                        try {
+                            JSONObject kObj = new JSONObject(kFutJson);
+                            if (kObj.has("kospiNgt")) {
+                                chg1 = kObj.getJSONObject("kospiNgt").optDouble("changePct", chg1);
+                            }
+                        } catch (Exception ignored) {}
+                    }
+
+                    // 2 & 3. 나스닥 100 & S&P 500
+                    String marketHtml = fetchHttp("https://hlkr.co.kr/market?_t=" + nowTs);
+                    if (marketHtml != null) {
+                        chg2 = parseMarketChange(marketHtml, "nasdaq", chg2);
+                        chg3 = parseMarketChange(marketHtml, "sp500", chg3);
+                    }
+
+                    // 4. WTI 원유
+                    String macroJson = fetchHttp("https://hlkr.co.kr/api/dash-macro?_t=" + nowTs);
+                    if (macroJson != null) {
+                        try {
+                            JSONObject mObj = new JSONObject(macroJson);
+                            JSONArray items = mObj.optJSONArray("items");
+                            if (items != null) {
+                                for (int i = 0; i < items.length(); i++) {
+                                    JSONObject it = items.getJSONObject(i);
+                                    if ("wti".equals(it.optString("key"))) {
+                                        chg4 = Math.round(it.optDouble("changePct", chg4) * 100.0) / 100.0;
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch (Exception ignored) {}
+                    }
                 }
 
                 // Fetch Snapshot for SKHX, SMSN, MU, PLTR, NVDA, META, TSLA (Exact assets mapping)
@@ -241,8 +322,14 @@ public class StocksAppWidget extends AppWidgetProvider {
                     } catch (Exception ignored) {}
                 }
 
-                final double finalKr200 = kr200Chg;
-                final double finalNq100 = nq100Chg;
+                final String finalName1 = name1;
+                final String finalName2 = name2;
+                final String finalName3 = name3;
+                final String finalName4 = name4;
+                final double finalChg1 = chg1;
+                final double finalChg2 = chg2;
+                final double finalChg3 = chg3;
+                final double finalChg4 = chg4;
                 final double finalSkhx = skhxChg;
                 final double finalSmsn = smsnChg;
                 final double finalSem = semChg;
@@ -287,16 +374,24 @@ public class StocksAppWidget extends AppWidgetProvider {
                         String timeStr = new SimpleDateFormat("HH:mm", Locale.KOREA).format(new Date());
                         views.setTextViewText(R.id.widget_sync_btn, "🔄 " + timeStr);
 
-                        applyStock(views, R.id.w_item_1, finalKr200);
-                        applyStock(views, R.id.w_item_2, finalNq100);
-                        applyStock(views, R.id.w_item_3, 0.45);
-                        applyStock(views, R.id.w_item_4, -0.32);
+                        // Dynamic names for items 1-4 based on Weekend vs Weekday
+                        views.setTextViewText(R.id.w_sub_1, finalName1);
+                        views.setTextViewText(R.id.w_sub_2, finalName2);
+                        views.setTextViewText(R.id.w_sub_3, finalName3);
+                        views.setTextViewText(R.id.w_sub_4, finalName4);
+
+                        applyStock(views, R.id.w_item_1, finalChg1);
+                        applyStock(views, R.id.w_item_2, finalChg2);
+                        applyStock(views, R.id.w_item_3, finalChg3);
+                        applyStock(views, R.id.w_item_4, finalChg4);
                         applyStock(views, R.id.w_item_5, finalSkhx);
                         applyStock(views, R.id.w_item_6, finalSmsn);
                         applyStock(views, R.id.w_item_7, finalSem);
                         applyStock(views, R.id.w_item_8, finalMu);
                         applyStock(views, R.id.w_item_9, finalPltr);
                         applyStock(views, R.id.w_item_10, finalNvda);
+                        applyStock(views, R.id.w_item_11, finalMeta);
+                        applyStock(views, R.id.w_item_12, finalTsla);
                         applyStock(views, R.id.w_item_11, finalMeta);
                         applyStock(views, R.id.w_item_12, finalTsla);
 

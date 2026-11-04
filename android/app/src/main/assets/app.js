@@ -72,6 +72,58 @@ function formatChangePct(pct) {
   return `${sign}${num.toFixed(2)}%`;
 }
 
+// Weekend / Weekday detection (KST)
+function isWeekendSession() {
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const kst = new Date(utc + (9 * 3600000));
+  const day = kst.getDay(); // 0: Sun, 1: Mon, ..., 6: Sat
+  const hour = kst.getHours();
+
+  // Weekend session: Saturday 06:00 to Monday 07:00 KST
+  if (day === 6 && hour >= 6) return true;
+  if (day === 0) return true;
+  if (day === 1 && hour < 7) return true;
+  return false;
+}
+
+// Extract quotes from hlkr.co.kr/market
+function parseMarketQuotes(html) {
+  const res = {};
+  if (!html) return res;
+
+  // 1. JSON quotes array in Next.js chunks
+  try {
+    const qMatch = html.match(/\{\\"quotes\\":\[(.*?)(?:\]\}\]|\}\]\n)/);
+    if (qMatch) {
+      const chunk = qMatch[0].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+      const itemRegex = /\{"key":"([^"]+)","name":"([^"]+)",.*?"price":([0-9.]+),.*?"changePct":([+\-]?[0-9.]+)/g;
+      let m;
+      while ((m = itemRegex.exec(chunk)) !== null) {
+        res[m[1]] = { price: parseFloat(m[3]), changePct: Number(parseFloat(m[4]).toFixed(2)) };
+      }
+    }
+  } catch (e) {}
+
+  // 2. HTML cards fallback
+  try {
+    const cardRegex = /<div class="truncate text-\[12px\] text-fg-3">([^<]+)<\/div><div class="mt-1 flex items-baseline justify-between gap-2"><span class="tnum text-\[15px\] font-bold text-fg">([0-9,.]+)<\/span><span class="tnum shrink-0 text-\[12px\] font-semibold [^"]*">([+\-]?[0-9.]+)%/g;
+    let cm;
+    while ((cm = cardRegex.exec(html)) !== null) {
+      const name = cm[1].replace('&amp;', '&').trim();
+      const px = parseFloat(cm[2].replace(/,/g, ''));
+      const chg = Number(parseFloat(cm[3]).toFixed(2));
+      if (name === 'S&P 500' && !res['sp500']) {
+        res['sp500'] = { price: px, changePct: chg };
+      } else if ((name === '나스닥' || name === '나스닥 100') && !res['nasdaq']) {
+        res['nasdaq'] = { price: px, changePct: chg };
+      }
+    }
+  } catch (e) {}
+
+  return res;
+}
+
 // Scrape IG Price Ticket from HTML string
 function parseIgHtml(html) {
   try {
@@ -110,22 +162,44 @@ async function fetchAllIndicators() {
 
   try {
     const ts = Date.now();
+    const weekendMode = isWeekendSession();
 
-    // 1. Core High-Speed APIs (HLKR & Binance): Ultra-fast (0.1~0.2s)
-    const [weekendRes, snapRes, binanceSemText] = await Promise.allSettled([
-      httpGet(`https://hlkr.co.kr/api/weekend-session?_t=${ts}`),
+    // Common APIs for Individual Stocks (5~12)
+    const stockPromises = [
       httpGet(`https://hlkr.co.kr/api/snapshot?_t=${ts}`),
       httpGet(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=${ts}`)
-    ]);
+    ];
 
-    // 2. IG.com APIs: Fast Non-Blocking (1.5s timeout)
-    let igTech = { price: 28505.4, changePct: 0.45 };
-    let igOil = { price: 10198.6, changePct: -0.32 };
-    try {
-      const [igTechRes, igOilRes] = await Promise.allSettled([
+    let item1, item2, item3, item4;
+
+    if (weekendMode) {
+      // =================== WEEKEND MODE (1~4) ===================
+      const [weekendRes, igTechRes, igOilRes, snapRes, binanceSemText] = await Promise.allSettled([
+        httpGet(`https://hlkr.co.kr/api/weekend-session?_t=${ts}`),
         httpGet(`https://www.ig.com/en/indices/markets-indices/weekend-us-tech-100-e1?_t=${ts}`),
-        httpGet(`https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude?_t=${ts}`)
+        httpGet(`https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude?_t=${ts}`),
+        stockPromises[0],
+        stockPromises[1]
       ]);
+
+      let weekendKospiPx = 887.49, weekendKospiChg = -1.76;
+      let weekendNasdaqPx = 25291.5, weekendNasdaqChg = 0.52;
+      if (weekendRes.status === 'fulfilled' && weekendRes.value) {
+        try {
+          const wJson = JSON.parse(weekendRes.value);
+          if (wJson.kospi) {
+            weekendKospiPx = wJson.kospi.close || weekendKospiPx;
+            weekendKospiChg = wJson.kospi.changePct !== undefined ? wJson.kospi.changePct : weekendKospiChg;
+          }
+          if (wJson.nasdaq) {
+            weekendNasdaqPx = wJson.nasdaq.close || weekendNasdaqPx;
+            weekendNasdaqChg = wJson.nasdaq.changePct !== undefined ? wJson.nasdaq.changePct : weekendNasdaqChg;
+          }
+        } catch (e) {}
+      }
+
+      let igTech = { price: 28505.4, changePct: 0.45 };
+      let igOil = { price: 10198.6, changePct: -0.32 };
       if (igTechRes.status === 'fulfilled' && igTechRes.value) {
         const p = parseIgHtml(igTechRes.value);
         if (p.price) igTech = p;
@@ -134,24 +208,80 @@ async function fetchAllIndicators() {
         const p = parseIgHtml(igOilRes.value);
         if (p.price) igOil = p;
       }
-    } catch (ignored) {}
 
-    let weekendKospiPx = 887.49, weekendKospiChg = -1.76;
-    let weekendNasdaqPx = 25291.5, weekendNasdaqChg = 0.52;
+      item1 = { id: "kr200", index: 1, name: "W 코스피200", symbol: "KR200", source: "hlkr.co.kr", hasChart: true, price: weekendKospiPx, changePct: weekendKospiChg, currency: "pt" };
+      item2 = { id: "nasdaq", index: 2, name: "W 나스닥100", symbol: "NQ100", source: "hlkr.co.kr", hasChart: false, price: weekendNasdaqPx, changePct: weekendNasdaqChg, currency: "pt" };
+      item3 = { id: "ig_tech100", index: 3, name: "W US Tech 100", symbol: "TECH100", source: "ig.com", hasChart: false, price: igTech.price, changePct: igTech.changePct, currency: "pt" };
+      item4 = { id: "ig_oil", index: 4, name: "W Oil (Crude)", symbol: "OIL (WTI)", source: "ig.com", hasChart: false, price: igOil.price, changePct: igOil.changePct, currency: "pt" };
 
-    if (weekendRes.status === 'fulfilled' && weekendRes.value) {
-      try {
-        const wJson = JSON.parse(weekendRes.value);
-        if (wJson.kospi) {
-          weekendKospiPx = wJson.kospi.close || weekendKospiPx;
-          weekendKospiChg = wJson.kospi.changePct !== undefined ? wJson.kospi.changePct : weekendKospiChg;
+      var resolvedSnapRes = snapRes;
+      var resolvedBinanceSemText = binanceSemText;
+    } else {
+      // =================== WEEKDAY MODE (1~4) ===================
+      // 1. 코스피 야간선물: hlkr.co.kr/api/kospi-futures
+      // 2. 나스닥 100: hlkr.co.kr/market
+      // 3. S&P 500: hlkr.co.kr/market
+      // 4. WTI 원유: hlkr.co.kr/api/dash-macro
+      const [kospiFutRes, marketRes, macroRes, snapRes, binanceSemText] = await Promise.allSettled([
+        httpGet(`https://hlkr.co.kr/api/kospi-futures?_t=${ts}`),
+        httpGet(`https://hlkr.co.kr/market?_t=${ts}`),
+        httpGet(`https://hlkr.co.kr/api/dash-macro?_t=${ts}`),
+        stockPromises[0],
+        stockPromises[1]
+      ]);
+
+      // 1. 코스피 야간선물
+      let kospiNgtPx = 900.25, kospiNgtChg = 1.17;
+      if (kospiFutRes.status === 'fulfilled' && kospiFutRes.value) {
+        try {
+          const kJson = JSON.parse(kospiFutRes.value);
+          if (kJson.kospiNgt) {
+            kospiNgtPx = kJson.kospiNgt.price !== undefined ? kJson.kospiNgt.price : kospiNgtPx;
+            kospiNgtChg = kJson.kospiNgt.changePct !== undefined ? kJson.kospiNgt.changePct : kospiNgtChg;
+          }
+        } catch (e) {}
+      }
+
+      // 2 & 3. 나스닥 100 & S&P 500 (from hlkr.co.kr/market)
+      let ndxPx = 26644.91, ndxChg = -0.32;
+      let spxPx = 7745.06, spxChg = -0.52;
+      if (marketRes.status === 'fulfilled' && marketRes.value) {
+        const mQuotes = parseMarketQuotes(marketRes.value);
+        if (mQuotes.nasdaq) {
+          ndxPx = mQuotes.nasdaq.price || ndxPx;
+          ndxChg = mQuotes.nasdaq.changePct !== undefined ? mQuotes.nasdaq.changePct : ndxChg;
         }
-        if (wJson.nasdaq) {
-          weekendNasdaqPx = wJson.nasdaq.close || weekendNasdaqPx;
-          weekendNasdaqChg = wJson.nasdaq.changePct !== undefined ? wJson.nasdaq.changePct : weekendNasdaqChg;
+        if (mQuotes.sp500) {
+          spxPx = mQuotes.sp500.price || spxPx;
+          spxChg = mQuotes.sp500.changePct !== undefined ? mQuotes.sp500.changePct : spxChg;
         }
-      } catch (e) {}
+      }
+
+      // 4. WTI 원유 (from hlkr.co.kr/api/dash-macro)
+      let wtiPx = 95.22, wtiChg = -0.91;
+      if (macroRes.status === 'fulfilled' && macroRes.value) {
+        try {
+          const mJson = JSON.parse(macroRes.value);
+          const items = mJson.items || [];
+          const wtiItem = items.find(it => it.key === 'wti');
+          if (wtiItem) {
+            wtiPx = wtiItem.value !== undefined ? wtiItem.value : wtiPx;
+            wtiChg = wtiItem.changePct !== undefined ? Number(Number(wtiItem.changePct).toFixed(2)) : wtiChg;
+          }
+        } catch (e) {}
+      }
+
+      item1 = { id: "kospi_ngt", index: 1, name: "코스피 야간선물", symbol: "KMNGT", source: "hlkr.co.kr", hasChart: true, price: kospiNgtPx, changePct: kospiNgtChg, currency: "pt" };
+      item2 = { id: "ndx", index: 2, name: "나스닥 100", symbol: "NDX", source: "hlkr.co.kr/market", hasChart: false, price: ndxPx, changePct: ndxChg, currency: "pt" };
+      item3 = { id: "sp500", index: 3, name: "S&P 500", symbol: "SPX", source: "hlkr.co.kr/market", hasChart: false, price: spxPx, changePct: spxChg, currency: "pt" };
+      item4 = { id: "wti", index: 4, name: "WTI 원유", symbol: "WTI", source: "hlkr.co.kr", hasChart: false, price: wtiPx, changePct: wtiChg, currency: "$" };
+
+      var resolvedSnapRes = snapRes;
+      var resolvedBinanceSemText = binanceSemText;
     }
+
+    let snapRes = resolvedSnapRes;
+    let binanceSemText = resolvedBinanceSemText;
 
     let snapMap = {};
     if (snapRes.status === 'fulfilled' && snapRes.value) {
@@ -213,10 +343,10 @@ async function fetchAllIndicators() {
     const [tsla_px, tsla_chg] = getStock('TSLA', 400.0, 0.06);
 
     const result = [
-      { id: "kr200", index: 1, name: "W 코스피200", symbol: "KR200", source: "hlkr.co.kr", hasChart: true, price: weekendKospiPx, changePct: weekendKospiChg, currency: "pt" },
-      { id: "nasdaq", index: 2, name: "W 나스닥100", symbol: "NQ100", source: "hlkr.co.kr", hasChart: false, price: weekendNasdaqPx, changePct: weekendNasdaqChg, currency: "pt" },
-      { id: "ig_tech100", index: 3, name: "W US Tech 100", symbol: "TECH100", source: "ig.com", hasChart: false, price: igTech.price, changePct: igTech.changePct, currency: "pt" },
-      { id: "ig_oil", index: 4, name: "W Oil (Crude)", symbol: "OIL (WTI)", source: "ig.com", hasChart: false, price: igOil.price, changePct: igOil.changePct, currency: "pt" },
+      item1,
+      item2,
+      item3,
+      item4,
       { id: "skhx", index: 5, name: "SK하이닉스", symbol: "SKHX", source: "hlkr.co.kr", hasChart: true, price: skhx_px, changePct: skhx_chg, currency: "$" },
       { id: "smsn", index: 6, name: "삼성전자", symbol: "SMSN", source: "hlkr.co.kr", hasChart: true, price: smsn_px, changePct: smsn_chg, currency: "$" },
       { id: "samsungem", index: 7, name: "삼성전기", symbol: "SAMSUNGEM", source: "hlkr.co.kr", hasChart: false, price: sem_px, changePct: sem_chg, currency: "KRW" },
@@ -559,6 +689,37 @@ function calculateSMA(data, period) {
 
 // Load Candles from HLKR API (with Synthetic Fallback)
 async function loadCandleData(symbol, interval) {
+  // 1. Direct series support for Kospi Night Futures & Weekend Kospi
+  if (symbol === 'KMNGT' || symbol === 'KR200') {
+    try {
+      const kRaw = await httpGet(`https://hlkr.co.kr/api/kospi-futures?_t=${Date.now()}`);
+      if (kRaw) {
+        const kJson = JSON.parse(kRaw);
+        const series = (kJson.kospiNgt && kJson.kospiNgt.series) || (kJson.weekend && kJson.weekend.series);
+        if (Array.isArray(series) && series.length > 0) {
+          const nowSec = Math.floor(Date.now() / 1000);
+          const chunkCandles = [];
+          const stepSec = 60; // 1-minute candle chunks
+          const totalPoints = series.length;
+          const pointsPerCandle = Math.max(1, Math.floor(totalPoints / 40));
+          for (let idx = 0; idx < totalPoints; idx += pointsPerCandle) {
+            const slice = series.slice(idx, idx + pointsPerCandle);
+            if (slice.length === 0) continue;
+            const open = slice[0];
+            const close = slice[slice.length - 1];
+            const high = Math.max(...slice);
+            const low = Math.min(...slice);
+            const time = nowSec - (Math.floor((totalPoints - idx) / pointsPerCandle) * 300);
+            chunkCandles.push({ time, open, high, low, close, volume: 1000 });
+          }
+          if (chunkCandles.length >= 5) return chunkCandles;
+        }
+      }
+    } catch (e) {
+      console.warn('kospi-futures series parse warning:', e);
+    }
+  }
+
   try {
     const targetUrl = `https://hlkr.co.kr/api/candles/${symbol}?interval=${interval}`;
     const rawText = await httpGet(targetUrl);
