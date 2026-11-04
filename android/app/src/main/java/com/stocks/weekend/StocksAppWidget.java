@@ -37,6 +37,7 @@ public class StocksAppWidget extends AppWidgetProvider {
     public static final String ACTION_PERIODIC_SYNC = "com.stocks.weekend.ACTION_PERIODIC_SYNC";
     private static final String PREF_NAME = "stocks_widget_prefs";
     private static final String KEY_REALTIME_ON = "realtime_on";
+    private static final String PREF_CACHE_PREFIX = "cache_stock_";
 
     private static final ExecutorService executor = Executors.newSingleThreadExecutor();
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -207,26 +208,33 @@ public class StocksAppWidget extends AppWidgetProvider {
             try {
                 long nowTs = System.currentTimeMillis();
                 boolean isWeekend = isWeekendSession();
+                SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
 
                 String name1, name2, name3, name4;
-                double chg1 = 0.0, chg2 = 0.0, chg3 = 0.0, chg4 = 0.0;
+                double chg1, chg2, chg3, chg4;
 
                 if (isWeekend) {
                     name1 = "W 코스피200";
                     name2 = "W 나스닥100";
                     name3 = "W Tech 100";
                     name4 = "W Oil (Crude)";
-                    chg1 = -1.76;
-                    chg2 = 0.52;
-                    chg3 = 0.45;
-                    chg4 = -0.32;
+                    chg1 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "w_kr200", -1.76f);
+                    chg2 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "w_nq100", 0.52f);
+                    chg3 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "w_tech", 0.45f);
+                    chg4 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "w_oil", -0.32f);
 
                     String weekendJson = fetchHttp("https://hlkr.co.kr/api/weekend-session?_t=" + nowTs);
                     if (weekendJson != null) {
                         try {
                             JSONObject wObj = new JSONObject(weekendJson);
-                            if (wObj.has("kospi")) chg1 = wObj.getJSONObject("kospi").optDouble("changePct", chg1);
-                            if (wObj.has("nasdaq")) chg2 = wObj.getJSONObject("nasdaq").optDouble("changePct", chg2);
+                            if (wObj.has("kospi")) {
+                                chg1 = wObj.getJSONObject("kospi").optDouble("changePct", chg1);
+                                prefs.edit().putFloat(PREF_CACHE_PREFIX + "w_kr200", (float) chg1).apply();
+                            }
+                            if (wObj.has("nasdaq")) {
+                                chg2 = wObj.getJSONObject("nasdaq").optDouble("changePct", chg2);
+                                prefs.edit().putFloat(PREF_CACHE_PREFIX + "w_nq100", (float) chg2).apply();
+                            }
                         } catch (Exception ignored) {}
                     }
                 } else {
@@ -234,10 +242,10 @@ public class StocksAppWidget extends AppWidgetProvider {
                     name2 = "나스닥 100";
                     name3 = "S&P 500";
                     name4 = "WTI 원유";
-                    chg1 = 1.17;
-                    chg2 = -0.32;
-                    chg3 = -0.52;
-                    chg4 = -0.91;
+                    chg1 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "kmngt", 1.17f);
+                    chg2 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "ndx", -0.32f);
+                    chg3 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "spx", -0.52f);
+                    chg4 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "wti", -0.91f);
 
                     // 1. 코스피 야간선물
                     String kFutJson = fetchHttp("https://hlkr.co.kr/api/kospi-futures?_t=" + nowTs);
@@ -246,6 +254,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                             JSONObject kObj = new JSONObject(kFutJson);
                             if (kObj.has("kospiNgt")) {
                                 chg1 = kObj.getJSONObject("kospiNgt").optDouble("changePct", chg1);
+                                prefs.edit().putFloat(PREF_CACHE_PREFIX + "kmngt", (float) chg1).apply();
                             }
                         } catch (Exception ignored) {}
                     }
@@ -253,8 +262,12 @@ public class StocksAppWidget extends AppWidgetProvider {
                     // 2 & 3. 나스닥 100 & S&P 500
                     String marketHtml = fetchHttp("https://hlkr.co.kr/market?_t=" + nowTs);
                     if (marketHtml != null) {
-                        chg2 = parseMarketChange(marketHtml, "nasdaq", chg2);
-                        chg3 = parseMarketChange(marketHtml, "sp500", chg3);
+                        double parsedNdx = parseMarketChange(marketHtml, "nasdaq", chg2);
+                        double parsedSpx = parseMarketChange(marketHtml, "sp500", chg3);
+                        chg2 = parsedNdx;
+                        chg3 = parsedSpx;
+                        prefs.edit().putFloat(PREF_CACHE_PREFIX + "ndx", (float) chg2).apply();
+                        prefs.edit().putFloat(PREF_CACHE_PREFIX + "spx", (float) chg3).apply();
                     }
 
                     // 4. WTI 원유
@@ -268,6 +281,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                                     JSONObject it = items.getJSONObject(i);
                                     if ("wti".equals(it.optString("key"))) {
                                         chg4 = Math.round(it.optDouble("changePct", chg4) * 100.0) / 100.0;
+                                        prefs.edit().putFloat(PREF_CACHE_PREFIX + "wti", (float) chg4).apply();
                                         break;
                                     }
                                 }
@@ -276,10 +290,18 @@ public class StocksAppWidget extends AppWidgetProvider {
                     }
                 }
 
+                // 5~12. 개별 주식 캐시 초기화 및 동기화
+                double skhxChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "skhx", -0.38f);
+                double smsnChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "smsn", -2.68f);
+                double muChg   = (double) prefs.getFloat(PREF_CACHE_PREFIX + "mu", 2.35f);
+                double pltrChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "pltr", 0.49f);
+                double nvdaChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "nvda", -0.09f);
+                double metaChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "meta", -0.09f);
+                double tslaChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "tsla", 0.06f);
+                double semRefKrw = 1196000;
+
                 // Fetch Snapshot for SKHX, SMSN, MU, PLTR, NVDA, META, TSLA (Exact assets mapping)
                 String snapJson = fetchHttp("https://hlkr.co.kr/api/snapshot?_t=" + nowTs);
-                double skhxChg = -0.38, smsnChg = -2.68, muChg = 2.35, pltrChg = 0.49, nvdaChg = -0.09, metaChg = -0.09, tslaChg = 0.06;
-                double semRefKrw = 1196000;
                 if (snapJson != null) {
                     try {
                         JSONObject snapObj = new JSONObject(snapJson);
@@ -291,13 +313,14 @@ public class StocksAppWidget extends AppWidgetProvider {
                                 String sym = assetObj != null ? assetObj.optString("symbol") : it.optString("symbol");
                                 double prem = it.optDouble("premiumPct", Double.NaN);
                                 if (!Double.isNaN(prem)) {
-                                    if ("SKHX".equals(sym)) skhxChg = Math.round(prem * 100.0) / 100.0;
-                                    else if ("SMSN".equals(sym)) smsnChg = Math.round(prem * 100.0) / 100.0;
-                                    else if ("MU".equals(sym)) muChg = Math.round(prem * 100.0) / 100.0;
-                                    else if ("PLTR".equals(sym)) pltrChg = Math.round(prem * 100.0) / 100.0;
-                                    else if ("NVDA".equals(sym)) nvdaChg = Math.round(prem * 100.0) / 100.0;
-                                    else if ("META".equals(sym)) metaChg = Math.round(prem * 100.0) / 100.0;
-                                    else if ("TSLA".equals(sym)) tslaChg = Math.round(prem * 100.0) / 100.0;
+                                    double val = Math.round(prem * 100.0) / 100.0;
+                                    if ("SKHX".equals(sym)) { skhxChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "skhx", (float) val).apply(); }
+                                    else if ("SMSN".equals(sym)) { smsnChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "smsn", (float) val).apply(); }
+                                    else if ("MU".equals(sym)) { muChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "mu", (float) val).apply(); }
+                                    else if ("PLTR".equals(sym)) { pltrChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "pltr", (float) val).apply(); }
+                                    else if ("NVDA".equals(sym)) { nvdaChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "nvda", (float) val).apply(); }
+                                    else if ("META".equals(sym)) { metaChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "meta", (float) val).apply(); }
+                                    else if ("TSLA".equals(sym)) { tslaChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "tsla", (float) val).apply(); }
                                 }
                                 if ("SAMSUNGEM".equals(sym)) {
                                     semRefKrw = it.optDouble("refPriceKrw", 1196000);
@@ -308,8 +331,8 @@ public class StocksAppWidget extends AppWidgetProvider {
                 }
 
                 // Fetch Samsung EM Binance Futures
+                double semChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "sem", -4.06f);
                 String binanceJson = fetchHttp("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=" + nowTs);
-                double semChg = -4.06;
                 if (binanceJson != null) {
                     try {
                         JSONObject bObj = new JSONObject(binanceJson);
@@ -318,6 +341,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                         double perpKrw = lastPx * fxRate;
                         if (semRefKrw > 0) {
                             semChg = Math.round(((perpKrw - semRefKrw) / semRefKrw) * 10000.0) / 100.0;
+                            prefs.edit().putFloat(PREF_CACHE_PREFIX + "sem", (float) semChg).apply();
                         }
                     } catch (Exception ignored) {}
                 }
@@ -425,8 +449,8 @@ public class StocksAppWidget extends AppWidgetProvider {
             URL url = new URL(urlString);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
-            conn.setConnectTimeout(1500); // Fast 1.5s timeout
-            conn.setReadTimeout(1500);
+            conn.setConnectTimeout(3000); // 3.0s 안정적 타임아웃
+            conn.setReadTimeout(3000);
             conn.setUseCaches(false);
             conn.setDefaultUseCaches(false);
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
