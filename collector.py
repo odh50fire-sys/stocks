@@ -106,38 +106,47 @@ def collect_all_12_indicators():
         except Exception as e:
             print(f"Error fetching kospi-futures: {e}")
 
-        ndx_px = 26644.91
-        ndx_chg = -0.32
-        spx_px = 7745.06
-        spx_chg = -0.52
+        # 2. 나스닥 100 (Yahoo Finance 24H Live NQ=F)
+        ndx_px = 28425.75
+        ndx_chg = 0.42
+        ndx_src = "Yahoo Finance (24H Live)"
         try:
-            m_html = fetch_url("https://hlkr.co.kr/market")
-            # Parse quotes JSON
-            m_match = re.search(r'\{\\"quotes\\":\[(.*?)(?:\]\}\]|\}\]\n)', m_html)
-            if m_match:
-                chunk = m_match.group(0).replace('\\"', '"').replace('\\\\', '\\')
-                for m in re.finditer(r'\{"key":"([^"]+)","name":"([^"]+)",.*?"price":([0-9.]+),.*?"changePct":([+\-]?[0-9.]+)', chunk):
-                    k = m.group(1)
-                    if k == 'nasdaq':
-                        ndx_px = float(m.group(3))
-                        ndx_chg = round(float(m.group(4)), 2)
-                    elif k == 'sp500':
-                        spx_px = float(m.group(3))
-                        spx_chg = round(float(m.group(4)), 2)
+            nq_res = json.loads(fetch_url("https://query1.finance.yahoo.com/v8/finance/chart/NQ=F?interval=1m&range=1d", timeout=4))
+            meta = nq_res["chart"]["result"][0]["meta"]
+            ndx_px = meta.get("regularMarketPrice", ndx_px)
+            prev = meta.get("chartPreviousClose") or meta.get("previousClose")
+            if prev and prev > 0:
+                ndx_chg = round(((ndx_px - prev) / prev) * 100, 2)
         except Exception as e:
-            print(f"Error fetching market quotes: {e}")
+            print(f"Error fetching Yahoo NQ=F: {e}")
 
-        wti_px = 95.22
-        wti_chg = -0.91
+        # 3. S&P 500 (Yahoo Finance 24H Live ES=F)
+        spx_px = 7669.5
+        spx_chg = 0.96
+        spx_src = "Yahoo Finance (24H Live)"
         try:
-            macro_json = json.loads(fetch_url("https://hlkr.co.kr/api/dash-macro"))
-            for it in macro_json.get("items", []):
-                if it.get("key") == "wti":
-                    wti_px = it.get("value", wti_px)
-                    wti_chg = round(it.get("changePct", wti_chg), 2)
-                    break
+            es_res = json.loads(fetch_url("https://query1.finance.yahoo.com/v8/finance/chart/ES=F?interval=1m&range=1d", timeout=4))
+            meta = es_res["chart"]["result"][0]["meta"]
+            spx_px = meta.get("regularMarketPrice", spx_px)
+            prev = meta.get("chartPreviousClose") or meta.get("previousClose")
+            if prev and prev > 0:
+                spx_chg = round(((spx_px - prev) / prev) * 100, 2)
         except Exception as e:
-            print(f"Error fetching dash-macro wti: {e}")
+            print(f"Error fetching Yahoo ES=F: {e}")
+
+        # 4. WTI 원유 (Yahoo Finance 24H Live CL=F)
+        wti_px = 94.81
+        wti_chg = -1.33
+        wti_src = "Yahoo Finance (24H Live)"
+        try:
+            cl_res = json.loads(fetch_url("https://query1.finance.yahoo.com/v8/finance/chart/CL=F?interval=1m&range=1d", timeout=4))
+            meta = cl_res["chart"]["result"][0]["meta"]
+            wti_px = meta.get("regularMarketPrice", wti_px)
+            prev = meta.get("chartPreviousClose") or meta.get("previousClose")
+            if prev and prev > 0:
+                wti_chg = round(((wti_px - prev) / prev) * 100, 2)
+        except Exception as e:
+            print(f"Error fetching Yahoo CL=F: {e}")
 
         item1 = {
             "id": "kospi_ngt", "index": 1, "name": "코스피 야간선물", "symbol": "KMNGT",
@@ -145,18 +154,18 @@ def collect_all_12_indicators():
             "changePct": kospi_ngt_chg, "currency": "pt"
         }
         item2 = {
-            "id": "ndx", "index": 2, "name": "나스닥 100", "symbol": "NDX",
-            "source": "hlkr.co.kr/market", "hasChart": False, "price": ndx_px,
+            "id": "ndx", "index": 2, "name": "나스닥 100", "symbol": "NQ=F",
+            "source": ndx_src, "hasChart": False, "price": ndx_px,
             "changePct": ndx_chg, "currency": "pt"
         }
         item3 = {
-            "id": "sp500", "index": 3, "name": "S&P 500", "symbol": "SPX",
-            "source": "hlkr.co.kr/market", "hasChart": False, "price": spx_px,
+            "id": "sp500", "index": 3, "name": "S&P 500", "symbol": "ES=F",
+            "source": spx_src, "hasChart": False, "price": spx_px,
             "changePct": spx_chg, "currency": "pt"
         }
         item4 = {
-            "id": "wti", "index": 4, "name": "WTI 원유", "symbol": "WTI",
-            "source": "hlkr.co.kr", "hasChart": False, "price": wti_px,
+            "id": "wti", "index": 4, "name": "WTI 원유", "symbol": "CL=F",
+            "source": wti_src, "hasChart": False, "price": wti_px,
             "changePct": wti_chg, "currency": "$"
         }
 

@@ -181,6 +181,28 @@ public class StocksAppWidget extends AppWidgetProvider {
         return false;
     }
 
+    private static double parseYahooChange(String json, double fallback) {
+        if (json == null) return fallback;
+        try {
+            JSONObject obj = new JSONObject(json);
+            JSONObject chart = obj.optJSONObject("chart");
+            if (chart != null) {
+                JSONArray resArr = chart.optJSONArray("result");
+                if (resArr != null && resArr.length() > 0) {
+                    JSONObject meta = resArr.getJSONObject(0).optJSONObject("meta");
+                    if (meta != null) {
+                        double price = meta.optDouble("regularMarketPrice", Double.NaN);
+                        double prevClose = meta.optDouble("chartPreviousClose", meta.optDouble("previousClose", Double.NaN));
+                        if (!Double.isNaN(price) && !Double.isNaN(prevClose) && prevClose > 0) {
+                            return Math.round(((price - prevClose) / prevClose) * 10000.0) / 100.0;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return fallback;
+    }
+
     private static double parseMarketChange(String html, String key, double fallback) {
         if (html == null) return fallback;
         try {
@@ -259,34 +281,62 @@ public class StocksAppWidget extends AppWidgetProvider {
                         } catch (Exception ignored) {}
                     }
 
-                    // 2 & 3. 나스닥 100 & S&P 500
-                    String marketHtml = fetchHttp("https://hlkr.co.kr/market?_t=" + nowTs);
-                    if (marketHtml != null) {
-                        double parsedNdx = parseMarketChange(marketHtml, "nasdaq", chg2);
-                        double parsedSpx = parseMarketChange(marketHtml, "sp500", chg3);
+                    // 2. 나스닥 100 (Yahoo Finance 24H Live NQ=F)
+                    String nqJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/NQ=F?interval=1m&range=1d&_t=" + nowTs);
+                    double parsedNdx = parseYahooChange(nqJson, Double.NaN);
+                    if (!Double.isNaN(parsedNdx)) {
                         chg2 = parsedNdx;
-                        chg3 = parsedSpx;
                         prefs.edit().putFloat(PREF_CACHE_PREFIX + "ndx", (float) chg2).apply();
+                    }
+
+                    // 3. S&P 500 (Yahoo Finance 24H Live ES=F)
+                    String esJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/ES=F?interval=1m&range=1d&_t=" + nowTs);
+                    double parsedSpx = parseYahooChange(esJson, Double.NaN);
+                    if (!Double.isNaN(parsedSpx)) {
+                        chg3 = parsedSpx;
                         prefs.edit().putFloat(PREF_CACHE_PREFIX + "spx", (float) chg3).apply();
                     }
 
-                    // 4. WTI 원유
-                    String macroJson = fetchHttp("https://hlkr.co.kr/api/dash-macro?_t=" + nowTs);
-                    if (macroJson != null) {
-                        try {
-                            JSONObject mObj = new JSONObject(macroJson);
-                            JSONArray items = mObj.optJSONArray("items");
-                            if (items != null) {
-                                for (int i = 0; i < items.length(); i++) {
-                                    JSONObject it = items.getJSONObject(i);
-                                    if ("wti".equals(it.optString("key"))) {
-                                        chg4 = Math.round(it.optDouble("changePct", chg4) * 100.0) / 100.0;
-                                        prefs.edit().putFloat(PREF_CACHE_PREFIX + "wti", (float) chg4).apply();
-                                        break;
+                    // Fallback for NDX / SPX from hlkr.co.kr/market if Yahoo failed
+                    if (Double.isNaN(parsedNdx) || Double.isNaN(parsedSpx)) {
+                        String marketHtml = fetchHttp("https://hlkr.co.kr/market?_t=" + nowTs);
+                        if (marketHtml != null) {
+                            if (Double.isNaN(parsedNdx)) {
+                                chg2 = parseMarketChange(marketHtml, "nasdaq", chg2);
+                                prefs.edit().putFloat(PREF_CACHE_PREFIX + "ndx", (float) chg2).apply();
+                            }
+                            if (Double.isNaN(parsedSpx)) {
+                                chg3 = parseMarketChange(marketHtml, "sp500", chg3);
+                                prefs.edit().putFloat(PREF_CACHE_PREFIX + "spx", (float) chg3).apply();
+                            }
+                        }
+                    }
+
+                    // 4. WTI 원유 (Yahoo Finance 24H Live CL=F)
+                    String clJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/CL=F?interval=1m&range=1d&_t=" + nowTs);
+                    double parsedWti = parseYahooChange(clJson, Double.NaN);
+                    if (!Double.isNaN(parsedWti)) {
+                        chg4 = parsedWti;
+                        prefs.edit().putFloat(PREF_CACHE_PREFIX + "wti", (float) chg4).apply();
+                    } else {
+                        // Fallback for WTI from dash-macro
+                        String macroJson = fetchHttp("https://hlkr.co.kr/api/dash-macro?_t=" + nowTs);
+                        if (macroJson != null) {
+                            try {
+                                JSONObject mObj = new JSONObject(macroJson);
+                                JSONArray items = mObj.optJSONArray("items");
+                                if (items != null) {
+                                    for (int i = 0; i < items.length(); i++) {
+                                        JSONObject it = items.getJSONObject(i);
+                                        if ("wti".equals(it.optString("key"))) {
+                                            chg4 = Math.round(it.optDouble("changePct", chg4) * 100.0) / 100.0;
+                                            prefs.edit().putFloat(PREF_CACHE_PREFIX + "wti", (float) chg4).apply();
+                                            break;
+                                        }
                                     }
                                 }
-                            }
-                        } catch (Exception ignored) {}
+                            } catch (Exception ignored) {}
+                        }
                     }
                 }
 

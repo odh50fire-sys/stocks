@@ -124,6 +124,24 @@ function parseMarketQuotes(html) {
   return res;
 }
 
+// Parse Yahoo Finance Chart API result for 24H continuous live futures (Pre, Market, Post)
+function parseYahooChart(text) {
+  try {
+    const data = JSON.parse(text);
+    const res = data.chart.result[0];
+    const meta = res.meta;
+    const price = meta.regularMarketPrice;
+    const prevClose = meta.chartPreviousClose || meta.previousClose;
+    let chgPct = 0.0;
+    if (price && prevClose && prevClose > 0) {
+      chgPct = Number((((price - prevClose) / prevClose) * 100).toFixed(2));
+    }
+    return { price, changePct: chgPct };
+  } catch (e) {
+    return null;
+  }
+}
+
 // Scrape IG Price Ticket from HTML string
 function parseIgHtml(html) {
   try {
@@ -219,11 +237,14 @@ async function fetchAllIndicators() {
     } else {
       // =================== WEEKDAY MODE (1~4) ===================
       // 1. 코스피 야간선물: hlkr.co.kr/api/kospi-futures
-      // 2. 나스닥 100: hlkr.co.kr/market
-      // 3. S&P 500: hlkr.co.kr/market
-      // 4. WTI 원유: hlkr.co.kr/api/dash-macro
-      const [kospiFutRes, marketRes, macroRes, snapRes, binanceSemText] = await Promise.allSettled([
+      // 2. 나스닥 100 (24H 선물 NQ=F): Yahoo Finance Chart API (Pre/Regular/Post/Overnight)
+      // 3. S&P 500 (24H 선물 ES=F): Yahoo Finance Chart API (Pre/Regular/Post/Overnight)
+      // 4. WTI 원유 (24H 선물 CL=F): Yahoo Finance Chart API
+      const [kospiFutRes, nqRes, esRes, clRes, marketRes, macroRes, snapRes, binanceSemText] = await Promise.allSettled([
         httpGet(`https://hlkr.co.kr/api/kospi-futures?_t=${ts}`),
+        httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/NQ=F?interval=1m&range=1d&_t=${ts}`),
+        httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/ES=F?interval=1m&range=1d&_t=${ts}`),
+        httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/CL=F?interval=1m&range=1d&_t=${ts}`),
         httpGet(`https://hlkr.co.kr/market?_t=${ts}`),
         httpGet(`https://hlkr.co.kr/api/dash-macro?_t=${ts}`),
         stockPromises[0],
@@ -242,24 +263,62 @@ async function fetchAllIndicators() {
         } catch (e) {}
       }
 
-      // 2 & 3. 나스닥 100 & S&P 500 (from hlkr.co.kr/market)
-      let ndxPx = 26644.91, ndxChg = -0.32;
-      let spxPx = 7745.06, spxChg = -0.52;
-      if (marketRes.status === 'fulfilled' && marketRes.value) {
-        const mQuotes = parseMarketQuotes(marketRes.value);
-        if (mQuotes.nasdaq) {
-          ndxPx = mQuotes.nasdaq.price || ndxPx;
-          ndxChg = mQuotes.nasdaq.changePct !== undefined ? mQuotes.nasdaq.changePct : ndxChg;
-        }
-        if (mQuotes.sp500) {
-          spxPx = mQuotes.sp500.price || spxPx;
-          spxChg = mQuotes.sp500.changePct !== undefined ? mQuotes.sp500.changePct : spxChg;
+      // 2. 나스닥 100 (24H Live NQ=F)
+      let ndxPx = 28425.75, ndxChg = 0.42;
+      let ndxSource = "Yahoo Finance (24H Live)";
+      let ndxSuccess = false;
+      if (nqRes.status === 'fulfilled' && nqRes.value) {
+        const yNdx = parseYahooChart(nqRes.value);
+        if (yNdx && yNdx.price) {
+          ndxPx = yNdx.price;
+          ndxChg = yNdx.changePct;
+          ndxSuccess = true;
         }
       }
 
-      // 4. WTI 원유 (from hlkr.co.kr/api/dash-macro)
-      let wtiPx = 95.22, wtiChg = -0.91;
-      if (macroRes.status === 'fulfilled' && macroRes.value) {
+      // 3. S&P 500 (24H Live ES=F)
+      let spxPx = 7669.5, spxChg = 0.96;
+      let spxSource = "Yahoo Finance (24H Live)";
+      let spxSuccess = false;
+      if (esRes.status === 'fulfilled' && esRes.value) {
+        const ySpx = parseYahooChart(esRes.value);
+        if (ySpx && ySpx.price) {
+          spxPx = ySpx.price;
+          spxChg = ySpx.changePct;
+          spxSuccess = true;
+        }
+      }
+
+      // Fallback for NDX / SPX from hlkr.co.kr/market if Yahoo fails
+      if ((!ndxSuccess || !spxSuccess) && marketRes.status === 'fulfilled' && marketRes.value) {
+        const mQuotes = parseMarketQuotes(marketRes.value);
+        if (!ndxSuccess && mQuotes.nasdaq) {
+          ndxPx = mQuotes.nasdaq.price || ndxPx;
+          ndxChg = mQuotes.nasdaq.changePct !== undefined ? mQuotes.nasdaq.changePct : ndxChg;
+          ndxSource = "hlkr.co.kr/market";
+        }
+        if (!spxSuccess && mQuotes.sp500) {
+          spxPx = mQuotes.sp500.price || spxPx;
+          spxChg = mQuotes.sp500.changePct !== undefined ? mQuotes.sp500.changePct : spxChg;
+          spxSource = "hlkr.co.kr/market";
+        }
+      }
+
+      // 4. WTI 원유 (24H Live CL=F)
+      let wtiPx = 94.81, wtiChg = -1.33;
+      let wtiSource = "Yahoo Finance (24H Live)";
+      let wtiSuccess = false;
+      if (clRes.status === 'fulfilled' && clRes.value) {
+        const yWti = parseYahooChart(clRes.value);
+        if (yWti && yWti.price) {
+          wtiPx = yWti.price;
+          wtiChg = yWti.changePct;
+          wtiSuccess = true;
+        }
+      }
+
+      // Fallback for WTI from hlkr.co.kr/api/dash-macro if Yahoo fails
+      if (!wtiSuccess && macroRes.status === 'fulfilled' && macroRes.value) {
         try {
           const mJson = JSON.parse(macroRes.value);
           const items = mJson.items || [];
@@ -267,14 +326,15 @@ async function fetchAllIndicators() {
           if (wtiItem) {
             wtiPx = wtiItem.value !== undefined ? wtiItem.value : wtiPx;
             wtiChg = wtiItem.changePct !== undefined ? Number(Number(wtiItem.changePct).toFixed(2)) : wtiChg;
+            wtiSource = "hlkr.co.kr";
           }
         } catch (e) {}
       }
 
       item1 = { id: "kospi_ngt", index: 1, name: "코스피 야간선물", symbol: "KMNGT", source: "hlkr.co.kr", hasChart: true, price: kospiNgtPx, changePct: kospiNgtChg, currency: "pt" };
-      item2 = { id: "ndx", index: 2, name: "나스닥 100", symbol: "NDX", source: "hlkr.co.kr/market", hasChart: false, price: ndxPx, changePct: ndxChg, currency: "pt" };
-      item3 = { id: "sp500", index: 3, name: "S&P 500", symbol: "SPX", source: "hlkr.co.kr/market", hasChart: false, price: spxPx, changePct: spxChg, currency: "pt" };
-      item4 = { id: "wti", index: 4, name: "WTI 원유", symbol: "WTI", source: "hlkr.co.kr", hasChart: false, price: wtiPx, changePct: wtiChg, currency: "$" };
+      item2 = { id: "ndx", index: 2, name: "나스닥 100", symbol: "NQ=F", source: ndxSource, hasChart: false, price: ndxPx, changePct: ndxChg, currency: "pt" };
+      item3 = { id: "sp500", index: 3, name: "S&P 500", symbol: "ES=F", source: spxSource, hasChart: false, price: spxPx, changePct: spxChg, currency: "pt" };
+      item4 = { id: "wti", index: 4, name: "WTI 원유", symbol: "CL=F", source: wtiSource, hasChart: false, price: wtiPx, changePct: wtiChg, currency: "$" };
 
       var resolvedSnapRes = snapRes;
       var resolvedBinanceSemText = binanceSemText;
