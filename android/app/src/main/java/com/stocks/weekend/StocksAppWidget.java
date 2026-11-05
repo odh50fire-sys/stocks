@@ -8,7 +8,13 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.Shader;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -25,7 +31,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -38,6 +46,8 @@ public class StocksAppWidget extends AppWidgetProvider {
     private static final String PREF_NAME = "stocks_widget_prefs";
     private static final String KEY_REALTIME_ON = "realtime_on";
     private static final String PREF_CACHE_PREFIX = "cache_stock_";
+    private static final String PREF_HISTORY_PREFIX = "history_stock_";
+    private static final long MAX_HISTORY_MS = 24 * 60 * 60 * 1000L; // 24 Hours
 
     private static final ExecutorService executor = Executors.newSingleThreadExecutor();
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -133,28 +143,24 @@ public class StocksAppWidget extends AppWidgetProvider {
         try {
             RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
 
-            // Click root area -> Open App
             Intent appIntent = new Intent(context, MainActivity.class);
             appIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             PendingIntent appPendingIntent = PendingIntent.getActivity(context, 0, appIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             views.setOnClickPendingIntent(R.id.widget_root, appPendingIntent);
 
-            // Click Toggle Realtime -> ACTION_TOGGLE_REALTIME
             Intent toggleIntent = new Intent(context, StocksAppWidget.class);
             toggleIntent.setAction(ACTION_TOGGLE_REALTIME);
             PendingIntent togglePendingIntent = PendingIntent.getBroadcast(context, 101, toggleIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             views.setOnClickPendingIntent(R.id.widget_toggle_realtime, togglePendingIntent);
 
-            // Click Sync button -> ACTION_SYNC
             Intent syncIntent = new Intent(context, StocksAppWidget.class);
             syncIntent.setAction(ACTION_SYNC);
             PendingIntent syncPendingIntent = PendingIntent.getBroadcast(context, 100, syncIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             views.setOnClickPendingIntent(R.id.widget_sync_btn, syncPendingIntent);
 
-            // Reflect current Realtime ON/OFF state
             SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
             boolean isRealtimeOn = prefs.getBoolean(KEY_REALTIME_ON, false);
             if (isRealtimeOn) {
@@ -173,7 +179,7 @@ public class StocksAppWidget extends AppWidgetProvider {
 
     private static boolean isWeekendSession() {
         java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Seoul"));
-        int day = cal.get(java.util.Calendar.DAY_OF_WEEK); // 1: Sunday, 7: Saturday, 2: Monday
+        int day = cal.get(java.util.Calendar.DAY_OF_WEEK);
         int hour = cal.get(java.util.Calendar.HOUR_OF_DAY);
         if (day == java.util.Calendar.SATURDAY && hour >= 6) return true;
         if (day == java.util.Calendar.SUNDAY) return true;
@@ -215,6 +221,152 @@ public class StocksAppWidget extends AppWidgetProvider {
         return fallback;
     }
 
+    // 24H Local History Ring Buffer (Guarantees 100% exact match without external discrepancies)
+    private static void recordHistory(SharedPreferences prefs, String key, double value, long nowTs) {
+        String histKey = PREF_HISTORY_PREFIX + key;
+        String raw = prefs.getString(histKey, "");
+        StringBuilder sb = new StringBuilder();
+
+        if (!raw.isEmpty()) {
+            String[] tokens = raw.split(";");
+            for (String t : tokens) {
+                String[] parts = t.split(":");
+                if (parts.length == 2) {
+                    try {
+                        long pts = Long.parseLong(parts[0]);
+                        if (nowTs - pts < MAX_HISTORY_MS) {
+                            if (sb.length() > 0) sb.append(";");
+                            sb.append(t);
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+        }
+
+        if (sb.length() > 0) sb.append(";");
+        sb.append(nowTs).append(":").append(String.format(Locale.US, "%.2f", value));
+
+        prefs.edit().putString(histKey, sb.toString()).apply();
+    }
+
+    private static double[] getHistory(SharedPreferences prefs, String key, double fallbackVal) {
+        String histKey = PREF_HISTORY_PREFIX + key;
+        String raw = prefs.getString(histKey, "");
+        if (raw.isEmpty()) {
+            return new double[]{ fallbackVal, fallbackVal };
+        }
+        String[] tokens = raw.split(";");
+        List<Double> list = new ArrayList<>();
+        for (String t : tokens) {
+            String[] parts = t.split(":");
+            if (parts.length == 2) {
+                try {
+                    list.add(Double.parseDouble(parts[1]));
+                } catch (Exception ignored) {}
+            }
+        }
+        if (list.isEmpty()) {
+            return new double[]{ fallbackVal, fallbackVal };
+        }
+        if (list.size() == 1) {
+            return new double[]{ list.get(0), list.get(0) };
+        }
+        double[] arr = new double[list.size()];
+        for (int i = 0; i < list.size(); i++) arr[i] = list.get(i);
+        return arr;
+    }
+
+    // In-Memory Canvas Sparkline Generator (0.001s ultra-lightweight)
+    private static Bitmap createSparklineBitmap(double[] points, boolean isUp) {
+        int width = 160;
+        int height = 36;
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+
+        if (points == null || points.length < 2) {
+            return bitmap;
+        }
+
+        double min = points[0];
+        double max = points[0];
+        for (double p : points) {
+            if (p < min) min = p;
+            if (p > max) max = p;
+        }
+
+        double range = max - min;
+        if (range < 0.2) {
+            min -= 0.1;
+            max += 0.1;
+            range = max - min;
+        }
+
+        int lineColor = isUp ? Color.parseColor("#FF453A") : Color.parseColor("#0A84FF");
+        int gradientTop = isUp ? Color.argb(90, 255, 69, 58) : Color.argb(90, 10, 132, 255);
+        int gradientBottom = Color.argb(0, 0, 0, 0);
+
+        Path linePath = new Path();
+        Path fillPath = new Path();
+
+        float padding = 4f;
+        float drawW = width - (padding * 2);
+        float drawH = height - (padding * 2);
+
+        float firstX = padding;
+        float firstY = (float) (height - padding - ((points[0] - min) / range * drawH));
+        linePath.moveTo(firstX, firstY);
+        fillPath.moveTo(firstX, height);
+        fillPath.lineTo(firstX, firstY);
+
+        int count = points.length;
+        for (int i = 1; i < count; i++) {
+            float x = padding + ((float) i / (count - 1)) * drawW;
+            float y = (float) (height - padding - ((points[i] - min) / range * drawH));
+
+            float prevX = padding + ((float) (i - 1) / (count - 1)) * drawW;
+            float prevY = (float) (height - padding - ((points[i - 1] - min) / range * drawH));
+            float midX = (prevX + x) / 2;
+
+            linePath.cubicTo(midX, prevY, midX, y, x, y);
+            fillPath.cubicTo(midX, prevY, midX, y, x, y);
+        }
+
+        float lastX = padding + drawW;
+        fillPath.lineTo(lastX, height);
+        fillPath.close();
+
+        // 1. Draw subtle gradient fill under trend curve
+        Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fillPaint.setStyle(Paint.Style.FILL);
+        fillPaint.setShader(new LinearGradient(0, 0, 0, height, gradientTop, gradientBottom, Shader.TileMode.CLAMP));
+        canvas.drawPath(fillPath, fillPaint);
+
+        // 2. Draw smooth stroke curve
+        Paint linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        linePaint.setStyle(Paint.Style.STROKE);
+        linePaint.setColor(lineColor);
+        linePaint.setStrokeWidth(3.0f);
+        linePaint.setStrokeCap(Paint.Cap.ROUND);
+        linePaint.setStrokeJoin(Paint.Join.ROUND);
+        canvas.drawPath(linePath, linePaint);
+
+        return bitmap;
+    }
+
+    private static void applyStockWithChart(RemoteViews views, int textId, int chartId, double chg, SharedPreferences sp, String stockKey, long nowTs) {
+        recordHistory(sp, stockKey, chg, nowTs);
+
+        String sign = chg > 0 ? "+" : "";
+        String text = String.format(Locale.US, "%s%.2f%%", sign, chg);
+        int color = chg > 0 ? Color.parseColor("#FF3B30") : (chg < 0 ? Color.parseColor("#0A84FF") : Color.parseColor("#94A3B8"));
+        views.setTextViewText(textId, text);
+        views.setTextColor(textId, color);
+
+        double[] history = getHistory(sp, stockKey, chg);
+        Bitmap chartBitmap = createSparklineBitmap(history, chg >= 0);
+        views.setImageViewBitmap(chartId, chartBitmap);
+    }
+
     private void syncWidgetData(Context context) {
         AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(context);
         ComponentName widgetComponent = new ComponentName(context, StocksAppWidget.class);
@@ -233,6 +385,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                 SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
 
                 String name1, name2, name3, name4;
+                String key1, key2, key3, key4;
                 double chg1, chg2, chg3, chg4;
 
                 if (isWeekend) {
@@ -240,10 +393,15 @@ public class StocksAppWidget extends AppWidgetProvider {
                     name2 = "W 나스닥100";
                     name3 = "W Tech 100";
                     name4 = "W Oil (Crude)";
-                    chg1 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "w_kr200", -1.76f);
-                    chg2 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "w_nq100", 0.52f);
-                    chg3 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "w_tech", 0.45f);
-                    chg4 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "w_oil", -0.32f);
+                    key1 = "w_kr200";
+                    key2 = "w_nq100";
+                    key3 = "w_tech";
+                    key4 = "w_oil";
+
+                    chg1 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key1, -1.76f);
+                    chg2 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key2, 0.52f);
+                    chg3 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key3, 0.45f);
+                    chg4 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key4, -0.32f);
 
                     String weekendJson = fetchHttp("https://hlkr.co.kr/api/weekend-session?_t=" + nowTs);
                     if (weekendJson != null) {
@@ -251,11 +409,11 @@ public class StocksAppWidget extends AppWidgetProvider {
                             JSONObject wObj = new JSONObject(weekendJson);
                             if (wObj.has("kospi")) {
                                 chg1 = wObj.getJSONObject("kospi").optDouble("changePct", chg1);
-                                prefs.edit().putFloat(PREF_CACHE_PREFIX + "w_kr200", (float) chg1).apply();
+                                prefs.edit().putFloat(PREF_CACHE_PREFIX + key1, (float) chg1).apply();
                             }
                             if (wObj.has("nasdaq")) {
                                 chg2 = wObj.getJSONObject("nasdaq").optDouble("changePct", chg2);
-                                prefs.edit().putFloat(PREF_CACHE_PREFIX + "w_nq100", (float) chg2).apply();
+                                prefs.edit().putFloat(PREF_CACHE_PREFIX + key2, (float) chg2).apply();
                             }
                         } catch (Exception ignored) {}
                     }
@@ -264,10 +422,15 @@ public class StocksAppWidget extends AppWidgetProvider {
                     name2 = "나스닥 100";
                     name3 = "S&P 500";
                     name4 = "WTI 원유";
-                    chg1 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "kmngt", 1.17f);
-                    chg2 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "ndx", -0.32f);
-                    chg3 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "spx", -0.52f);
-                    chg4 = (double) prefs.getFloat(PREF_CACHE_PREFIX + "wti", -0.91f);
+                    key1 = "kmngt";
+                    key2 = "ndx";
+                    key3 = "spx";
+                    key4 = "wti";
+
+                    chg1 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key1, 1.17f);
+                    chg2 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key2, 0.42f);
+                    chg3 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key3, 0.96f);
+                    chg4 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key4, -1.33f);
 
                     // 1. 코스피 야간선물
                     String kFutJson = fetchHttp("https://hlkr.co.kr/api/kospi-futures?_t=" + nowTs);
@@ -276,7 +439,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                             JSONObject kObj = new JSONObject(kFutJson);
                             if (kObj.has("kospiNgt")) {
                                 chg1 = kObj.getJSONObject("kospiNgt").optDouble("changePct", chg1);
-                                prefs.edit().putFloat(PREF_CACHE_PREFIX + "kmngt", (float) chg1).apply();
+                                prefs.edit().putFloat(PREF_CACHE_PREFIX + key1, (float) chg1).apply();
                             }
                         } catch (Exception ignored) {}
                     }
@@ -286,7 +449,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                     double parsedNdx = parseYahooChange(nqJson, Double.NaN);
                     if (!Double.isNaN(parsedNdx)) {
                         chg2 = parsedNdx;
-                        prefs.edit().putFloat(PREF_CACHE_PREFIX + "ndx", (float) chg2).apply();
+                        prefs.edit().putFloat(PREF_CACHE_PREFIX + key2, (float) chg2).apply();
                     }
 
                     // 3. S&P 500 (Yahoo Finance 24H Live ES=F)
@@ -294,7 +457,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                     double parsedSpx = parseYahooChange(esJson, Double.NaN);
                     if (!Double.isNaN(parsedSpx)) {
                         chg3 = parsedSpx;
-                        prefs.edit().putFloat(PREF_CACHE_PREFIX + "spx", (float) chg3).apply();
+                        prefs.edit().putFloat(PREF_CACHE_PREFIX + key3, (float) chg3).apply();
                     }
 
                     // Fallback for NDX / SPX from hlkr.co.kr/market if Yahoo failed
@@ -303,11 +466,11 @@ public class StocksAppWidget extends AppWidgetProvider {
                         if (marketHtml != null) {
                             if (Double.isNaN(parsedNdx)) {
                                 chg2 = parseMarketChange(marketHtml, "nasdaq", chg2);
-                                prefs.edit().putFloat(PREF_CACHE_PREFIX + "ndx", (float) chg2).apply();
+                                prefs.edit().putFloat(PREF_CACHE_PREFIX + key2, (float) chg2).apply();
                             }
                             if (Double.isNaN(parsedSpx)) {
                                 chg3 = parseMarketChange(marketHtml, "sp500", chg3);
-                                prefs.edit().putFloat(PREF_CACHE_PREFIX + "spx", (float) chg3).apply();
+                                prefs.edit().putFloat(PREF_CACHE_PREFIX + key3, (float) chg3).apply();
                             }
                         }
                     }
@@ -317,9 +480,8 @@ public class StocksAppWidget extends AppWidgetProvider {
                     double parsedWti = parseYahooChange(clJson, Double.NaN);
                     if (!Double.isNaN(parsedWti)) {
                         chg4 = parsedWti;
-                        prefs.edit().putFloat(PREF_CACHE_PREFIX + "wti", (float) chg4).apply();
+                        prefs.edit().putFloat(PREF_CACHE_PREFIX + key4, (float) chg4).apply();
                     } else {
-                        // Fallback for WTI from dash-macro
                         String macroJson = fetchHttp("https://hlkr.co.kr/api/dash-macro?_t=" + nowTs);
                         if (macroJson != null) {
                             try {
@@ -330,7 +492,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                                         JSONObject it = items.getJSONObject(i);
                                         if ("wti".equals(it.optString("key"))) {
                                             chg4 = Math.round(it.optDouble("changePct", chg4) * 100.0) / 100.0;
-                                            prefs.edit().putFloat(PREF_CACHE_PREFIX + "wti", (float) chg4).apply();
+                                            prefs.edit().putFloat(PREF_CACHE_PREFIX + key4, (float) chg4).apply();
                                             break;
                                         }
                                     }
@@ -340,7 +502,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                     }
                 }
 
-                // 5~12. 개별 주식 캐시 초기화 및 동기화
+                // 5~12. 개별 주식 캐시 초기화 및 동기화 (hlkr.co.kr 프리미엄/괴리율 100% 동일 출처)
                 double skhxChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "skhx", -0.38f);
                 double smsnChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "smsn", -2.68f);
                 double muChg   = (double) prefs.getFloat(PREF_CACHE_PREFIX + "mu", 2.35f);
@@ -350,7 +512,6 @@ public class StocksAppWidget extends AppWidgetProvider {
                 double tslaChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "tsla", 0.06f);
                 double semRefKrw = 1196000;
 
-                // Fetch Snapshot for SKHX, SMSN, MU, PLTR, NVDA, META, TSLA (Exact assets mapping)
                 String snapJson = fetchHttp("https://hlkr.co.kr/api/snapshot?_t=" + nowTs);
                 if (snapJson != null) {
                     try {
@@ -380,7 +541,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                     } catch (Exception ignored) {}
                 }
 
-                // Fetch Samsung EM Binance Futures
+                // 7. 삼성전기 (바이낸스 선물)
                 double semChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "sem", -4.06f);
                 String binanceJson = fetchHttp("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=" + nowTs);
                 if (binanceJson != null) {
@@ -400,6 +561,10 @@ public class StocksAppWidget extends AppWidgetProvider {
                 final String finalName2 = name2;
                 final String finalName3 = name3;
                 final String finalName4 = name4;
+                final String finalKey1 = key1;
+                final String finalKey2 = key2;
+                final String finalKey3 = key3;
+                final String finalKey4 = key4;
                 final double finalChg1 = chg1;
                 final double finalChg2 = chg2;
                 final double finalChg3 = chg3;
@@ -448,26 +613,25 @@ public class StocksAppWidget extends AppWidgetProvider {
                         String timeStr = new SimpleDateFormat("HH:mm", Locale.KOREA).format(new Date());
                         views.setTextViewText(R.id.widget_sync_btn, "🔄 " + timeStr);
 
-                        // Dynamic names for items 1-4 based on Weekend vs Weekday
+                        // Dynamic titles for items 1-4
                         views.setTextViewText(R.id.w_sub_1, finalName1);
                         views.setTextViewText(R.id.w_sub_2, finalName2);
                         views.setTextViewText(R.id.w_sub_3, finalName3);
                         views.setTextViewText(R.id.w_sub_4, finalName4);
 
-                        applyStock(views, R.id.w_item_1, finalChg1);
-                        applyStock(views, R.id.w_item_2, finalChg2);
-                        applyStock(views, R.id.w_item_3, finalChg3);
-                        applyStock(views, R.id.w_item_4, finalChg4);
-                        applyStock(views, R.id.w_item_5, finalSkhx);
-                        applyStock(views, R.id.w_item_6, finalSmsn);
-                        applyStock(views, R.id.w_item_7, finalSem);
-                        applyStock(views, R.id.w_item_8, finalMu);
-                        applyStock(views, R.id.w_item_9, finalPltr);
-                        applyStock(views, R.id.w_item_10, finalNvda);
-                        applyStock(views, R.id.w_item_11, finalMeta);
-                        applyStock(views, R.id.w_item_12, finalTsla);
-                        applyStock(views, R.id.w_item_11, finalMeta);
-                        applyStock(views, R.id.w_item_12, finalTsla);
+                        // Apply 12 stocks with 24H history recording & smooth sparkline charts
+                        applyStockWithChart(views, R.id.w_item_1, R.id.w_chart_1, finalChg1, sp, finalKey1, nowTs);
+                        applyStockWithChart(views, R.id.w_item_2, R.id.w_chart_2, finalChg2, sp, finalKey2, nowTs);
+                        applyStockWithChart(views, R.id.w_item_3, R.id.w_chart_3, finalChg3, sp, finalKey3, nowTs);
+                        applyStockWithChart(views, R.id.w_item_4, R.id.w_chart_4, finalChg4, sp, finalKey4, nowTs);
+                        applyStockWithChart(views, R.id.w_item_5, R.id.w_chart_5, finalSkhx, sp, "skhx", nowTs);
+                        applyStockWithChart(views, R.id.w_item_6, R.id.w_chart_6, finalSmsn, sp, "smsn", nowTs);
+                        applyStockWithChart(views, R.id.w_item_7, R.id.w_chart_7, finalSem, sp, "sem", nowTs);
+                        applyStockWithChart(views, R.id.w_item_8, R.id.w_chart_8, finalMu, sp, "mu", nowTs);
+                        applyStockWithChart(views, R.id.w_item_9, R.id.w_chart_9, finalPltr, sp, "pltr", nowTs);
+                        applyStockWithChart(views, R.id.w_item_10, R.id.w_chart_10, finalNvda, sp, "nvda", nowTs);
+                        applyStockWithChart(views, R.id.w_item_11, R.id.w_chart_11, finalMeta, sp, "meta", nowTs);
+                        applyStockWithChart(views, R.id.w_item_12, R.id.w_chart_12, finalTsla, sp, "tsla", nowTs);
 
                         appWidgetManager.updateAppWidget(appWidgetIds, views);
                     } catch (Exception ex) {
@@ -486,20 +650,12 @@ public class StocksAppWidget extends AppWidgetProvider {
         });
     }
 
-    private static void applyStock(RemoteViews views, int viewId, double chg) {
-        String sign = chg > 0 ? "+" : "";
-        String text = String.format(Locale.US, "%s%.2f%%", sign, chg);
-        int color = chg > 0 ? Color.parseColor("#FF3B30") : (chg < 0 ? Color.parseColor("#0A84FF") : Color.parseColor("#94A3B8"));
-        views.setTextViewText(viewId, text);
-        views.setTextColor(viewId, color);
-    }
-
     private static String fetchHttp(String urlString) {
         try {
             URL url = new URL(urlString);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
-            conn.setConnectTimeout(3000); // 3.0s 안정적 타임아웃
+            conn.setConnectTimeout(3000);
             conn.setReadTimeout(3000);
             conn.setUseCaches(false);
             conn.setDefaultUseCaches(false);

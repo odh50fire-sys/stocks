@@ -507,7 +507,50 @@ function renderDashboard(items) {
   });
 }
 
-// Render 6x6 Widget View: 번호(1., 2.) 제거 & 1열/2열 분리
+// Local 24H history storage helper in JS
+function recordJsHistory(key, val) {
+  try {
+    const raw = localStorage.getItem('hist_' + key) || '';
+    const now = Date.now();
+    const maxAge = 24 * 3600 * 1000;
+    const items = raw ? raw.split(';').map(t => {
+      const p = t.split(':');
+      return { t: Number(p[0]), v: Number(p[1]) };
+    }).filter(i => (now - i.t) < maxAge) : [];
+    items.push({ t: now, v: Number(val) });
+    localStorage.setItem('hist_' + key, items.map(i => `${i.t}:${i.v}`).join(';'));
+    return items.map(i => i.v);
+  } catch (e) {
+    return [Number(val), Number(val)];
+  }
+}
+
+function generateSvgSparkline(points, isUp) {
+  if (!points || points.length < 2) return '';
+  let min = Math.min(...points);
+  let max = Math.max(...points);
+  let range = max - min;
+  if (range < 0.2) { min -= 0.1; max += 0.1; range = max - min; }
+  const w = 120, h = 24, pad = 2;
+  const drawW = w - pad * 2, drawH = h - pad * 2;
+  const pts = points.map((p, i) => {
+    const x = pad + (i / (points.length - 1)) * drawW;
+    const y = h - pad - ((p - min) / range * drawH);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const color = isUp ? '#ff3b30' : '#0a84ff';
+  const fillColor = isUp ? 'rgba(255, 59, 48, 0.15)' : 'rgba(10, 132, 255, 0.15)';
+  const polylinePts = pts.join(' ');
+  const polygonPts = `${pad},${h} ${polylinePts} ${w - pad},${h}`;
+  return `
+    <svg width="100%" height="20" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block;margin-top:2px;">
+      <polygon points="${polygonPts}" fill="${fillColor}" />
+      <polyline points="${polylinePts}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  `;
+}
+
+// Render 6x6 Widget View: 번호(1., 2.) 제거 & 1열/2열 분리 & 24h 스파크라인 차트 탑재
 function renderWidget(items) {
   if (!widgetGrid) return;
   widgetGrid.innerHTML = '';
@@ -515,13 +558,18 @@ function renderWidget(items) {
     const itemElem = document.createElement('div');
     itemElem.className = 'widget-item';
     const chgColor = item.changePct > 0 ? '#ff3b30' : (item.changePct < 0 ? '#0a84ff' : '#8e8e93');
+    const isUp = item.changePct >= 0;
+    const history = recordJsHistory(item.id, item.changePct);
+    const sparklineSvg = generateSvgSparkline(history, isUp);
 
     itemElem.innerHTML = `
-      <div class="widget-item-left">
-        <span class="widget-item-name">${item.name}</span>
-        <span class="widget-item-price">${formatPrice(item.price, item.currency)}</span>
+      <div style="width: 100%;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+          <span class="widget-item-name" style="font-size: 13.5px; font-weight: 700;">${item.name}</span>
+          <span class="widget-item-pct" style="color: ${chgColor} !important; font-size: 16px; font-weight: 800;">${formatChangePct(item.changePct)}</span>
+        </div>
+        ${sparklineSvg}
       </div>
-      <span class="widget-item-pct" style="color: ${chgColor} !important;">${formatChangePct(item.changePct)}</span>
     `;
 
     itemElem.addEventListener('click', () => {
