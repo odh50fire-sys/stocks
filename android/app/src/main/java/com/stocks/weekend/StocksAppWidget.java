@@ -16,6 +16,7 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Shader;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -25,6 +26,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -33,8 +37,10 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -53,6 +59,7 @@ public class StocksAppWidget extends AppWidgetProvider {
     private static final String PREF_CACHE_PREFIX = "cache_stock_";
     private static final String PREF_HISTORY_PREFIX = "history_stock_";
     private static final long MAX_HISTORY_MS = 24 * 60 * 60 * 1000L; // 24 Hours
+    private static final String BACKUP_FILE_NAME = "stocks_24h_history_backup.json";
 
     // 6-thread pool for ultra-fast parallel network fetching (completes in ~0.5s)
     private static final ExecutorService networkPool = Executors.newFixedThreadPool(6);
@@ -171,6 +178,9 @@ public class StocksAppWidget extends AppWidgetProvider {
     private static RemoteViews buildWidgetViews(Context context, boolean showLoading, String syncButtonText) {
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
         SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+
+        // Auto-restore backup from public storage if this is a fresh install after uninstalling
+        restoreBackupFromDiskIfEmpty(context, prefs);
 
         // 1. Pending Intents
         Intent appIntent = new Intent(context, MainActivity.class);
@@ -375,11 +385,11 @@ public class StocksAppWidget extends AppWidgetProvider {
                         finally { latch.countDown(); }
                     });
 
-                    // Task D2: 나스닥 100 선물 (NQ=F)
+                    // Task D2: 나스닥 100 선물 (NQ=F) - with 24H 15m candle seeding
                     networkPool.execute(() -> {
                         try {
-                            String nqJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/NQ=F?interval=1m&range=1d&_t=" + nowTs);
-                            double val = parseYahooChange(nqJson);
+                            String nqJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/NQ=F?interval=15m&range=1d&_t=" + nowTs);
+                            double val = parseYahooChangeAndSeed(nqJson, "ndx", prefs, editor, nowTs);
                             if (!Double.isNaN(val)) {
                                 saveStock(editor, prefs, "ndx", val, nowTs);
                             } else {
@@ -391,11 +401,11 @@ public class StocksAppWidget extends AppWidgetProvider {
                         finally { latch.countDown(); }
                     });
 
-                    // Task D3: S&P 500 선물 (ES=F)
+                    // Task D3: S&P 500 선물 (ES=F) - with 24H 15m candle seeding
                     networkPool.execute(() -> {
                         try {
-                            String esJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/ES=F?interval=1m&range=1d&_t=" + nowTs);
-                            double val = parseYahooChange(esJson);
+                            String esJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/ES=F?interval=15m&range=1d&_t=" + nowTs);
+                            double val = parseYahooChangeAndSeed(esJson, "spx", prefs, editor, nowTs);
                             if (!Double.isNaN(val)) {
                                 saveStock(editor, prefs, "spx", val, nowTs);
                             } else {
@@ -407,11 +417,11 @@ public class StocksAppWidget extends AppWidgetProvider {
                         finally { latch.countDown(); }
                     });
 
-                    // Task D4: WTI 원유 선물 (CL=F)
+                    // Task D4: WTI 원유 선물 (CL=F) - with 24H 15m candle seeding
                     networkPool.execute(() -> {
                         try {
-                            String clJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/CL=F?interval=1m&range=1d&_t=" + nowTs);
-                            double val = parseYahooChange(clJson);
+                            String clJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/CL=F?interval=15m&range=1d&_t=" + nowTs);
+                            double val = parseYahooChangeAndSeed(clJson, "wti", prefs, editor, nowTs);
                             if (!Double.isNaN(val)) {
                                 saveStock(editor, prefs, "wti", val, nowTs);
                             } else {
@@ -481,7 +491,10 @@ public class StocksAppWidget extends AppWidgetProvider {
                 // Commit updated cache
                 String timeStr = new SimpleDateFormat("HH:mm", Locale.KOREA).format(new Date());
                 editor.putString(KEY_LAST_SYNC_TIME, timeStr);
-                editor.commit(); // Ensure synchronous write before UI render
+                editor.commit(); // Ensure synchronous write before UI render and backup
+
+                // Save persistent backup to public storage
+                saveBackupToDisk(context, prefs);
 
                 // Update UI on main thread
                 mainHandler.post(() -> {
@@ -515,7 +528,11 @@ public class StocksAppWidget extends AppWidgetProvider {
         recordHistory(prefs, stockKey, value, nowTs);
     }
 
-    private static double parseYahooChange(String json) {
+    /**
+     * Parses Yahoo Chart JSON, extracts latest change %, and if history is empty,
+     * seeds past 24 hours (15m intervals) from quote closes so charts appear instantly!
+     */
+    private static double parseYahooChangeAndSeed(String json, String stockKey, SharedPreferences prefs, SharedPreferences.Editor editor, long nowTs) {
         if (json == null) return Double.NaN;
         try {
             JSONObject obj = new JSONObject(json);
@@ -523,13 +540,50 @@ public class StocksAppWidget extends AppWidgetProvider {
             if (chart != null) {
                 JSONArray resArr = chart.optJSONArray("result");
                 if (resArr != null && resArr.length() > 0) {
-                    JSONObject meta = resArr.getJSONObject(0).optJSONObject("meta");
+                    JSONObject res = resArr.getJSONObject(0);
+                    JSONObject meta = res.optJSONObject("meta");
                     if (meta != null) {
                         double price = meta.optDouble("regularMarketPrice", Double.NaN);
                         double prevClose = meta.optDouble("chartPreviousClose", meta.optDouble("previousClose", Double.NaN));
+                        double currentChange = Double.NaN;
                         if (!Double.isNaN(price) && !Double.isNaN(prevClose) && prevClose > 0) {
-                            return Math.round(((price - prevClose) / prevClose) * 10000.0) / 100.0;
+                            currentChange = Math.round(((price - prevClose) / prevClose) * 10000.0) / 100.0;
                         }
+
+                        // Seed past 24h history from 15m candle closes if history has fewer than 5 points
+                        String histKey = PREF_HISTORY_PREFIX + stockKey;
+                        String currentHist = prefs.getString(histKey, "");
+                        if (currentHist.isEmpty() || currentHist.split(";").length < 5) {
+                            JSONArray timestamps = res.optJSONArray("timestamp");
+                            JSONObject indicators = res.optJSONObject("indicators");
+                            if (timestamps != null && indicators != null && !Double.isNaN(prevClose) && prevClose > 0) {
+                                JSONArray quoteArr = indicators.optJSONArray("quote");
+                                if (quoteArr != null && quoteArr.length() > 0) {
+                                    JSONArray closeArr = quoteArr.getJSONObject(0).optJSONArray("close");
+                                    if (closeArr != null && closeArr.length() == timestamps.length()) {
+                                        StringBuilder sb = new StringBuilder();
+                                        for (int i = 0; i < timestamps.length(); i++) {
+                                            double cPx = closeArr.optDouble(i, Double.NaN);
+                                            long tSec = timestamps.optLong(i, 0);
+                                            if (!Double.isNaN(cPx) && tSec > 0) {
+                                                long tMs = tSec * 1000L;
+                                                if (nowTs - tMs < MAX_HISTORY_MS) {
+                                                    double cPct = Math.round(((cPx - prevClose) / prevClose) * 10000.0) / 100.0;
+                                                    if (sb.length() > 0) sb.append(";");
+                                                    sb.append(tMs).append(":").append(String.format(Locale.US, "%.2f", cPct));
+                                                }
+                                            }
+                                        }
+                                        if (sb.length() > 0) {
+                                            editor.putString(histKey, sb.toString());
+                                            prefs.edit().putString(histKey, sb.toString()).apply();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        return currentChange;
                     }
                 }
             }
@@ -741,5 +795,95 @@ public class StocksAppWidget extends AppWidgetProvider {
             }
         } catch (Exception ignored) {}
         return null;
+    }
+
+    // =========================================================================
+    // Persistent Public Storage Backup & Restore (Survives App Uninstall!)
+    // =========================================================================
+
+    private static File getBackupFile(Context context) {
+        try {
+            File dl = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (dl != null && (dl.exists() || dl.mkdirs())) {
+                return new File(dl, BACKUP_FILE_NAME);
+            }
+        } catch (Exception ignored) {}
+        return new File(context.getExternalFilesDir(null), BACKUP_FILE_NAME);
+    }
+
+    private static void saveBackupToDisk(Context context, SharedPreferences prefs) {
+        networkPool.execute(() -> {
+            try {
+                File target = getBackupFile(context);
+                if (target == null) return;
+
+                JSONObject root = new JSONObject();
+                root.put("version", 1);
+                root.put("updatedAt", System.currentTimeMillis());
+
+                JSONObject dataObj = new JSONObject();
+                Map<String, ?> all = prefs.getAll();
+                for (Map.Entry<String, ?> e : all.entrySet()) {
+                    String k = e.getKey();
+                    Object v = e.getValue();
+                    if (v instanceof Float) {
+                        dataObj.put(k, ((Float) v).doubleValue());
+                    } else if (v instanceof String) {
+                        dataObj.put(k, v);
+                    } else if (v instanceof Boolean) {
+                        dataObj.put(k, v);
+                    }
+                }
+                root.put("data", dataObj);
+
+                File tmp = new File(target.getParentFile(), target.getName() + ".tmp");
+                FileOutputStream fos = new FileOutputStream(tmp);
+                fos.write(root.toString().getBytes(StandardCharsets.UTF_8));
+                fos.flush();
+                fos.close();
+
+                if (target.exists()) target.delete();
+                tmp.renameTo(target);
+            } catch (Exception ignored) {}
+        });
+    }
+
+    private static synchronized void restoreBackupFromDiskIfEmpty(Context context, SharedPreferences prefs) {
+        try {
+            // Only restore if history is completely empty (e.g. freshly installed after uninstall)
+            String testHistory = prefs.getString(PREF_HISTORY_PREFIX + "ndx", "");
+            if (!testHistory.isEmpty()) return;
+
+            File target = getBackupFile(context);
+            if (target == null || !target.exists()) return;
+
+            FileInputStream fis = new FileInputStream(target);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(fis, StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+            reader.close();
+
+            JSONObject root = new JSONObject(sb.toString());
+            JSONObject dataObj = root.optJSONObject("data");
+            if (dataObj != null) {
+                SharedPreferences.Editor editor = prefs.edit();
+                Iterator<String> keys = dataObj.keys();
+                while (keys.hasNext()) {
+                    String k = keys.next();
+                    Object v = dataObj.get(k);
+                    if (v instanceof Double || v instanceof Integer) {
+                        editor.putFloat(k, (float) dataObj.optDouble(k));
+                    } else if (v instanceof String) {
+                        editor.putString(k, (String) v);
+                    } else if (v instanceof Boolean) {
+                        editor.putBoolean(k, (Boolean) v);
+                    }
+                }
+                editor.commit();
+            }
+        } catch (Exception ignored) {}
     }
 }
