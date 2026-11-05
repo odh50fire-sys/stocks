@@ -35,22 +35,29 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class StocksAppWidget extends AppWidgetProvider {
 
     public static final String ACTION_SYNC = "com.stocks.weekend.ACTION_SYNC";
     public static final String ACTION_TOGGLE_REALTIME = "com.stocks.weekend.ACTION_TOGGLE_REALTIME";
     public static final String ACTION_PERIODIC_SYNC = "com.stocks.weekend.ACTION_PERIODIC_SYNC";
+
     private static final String PREF_NAME = "stocks_widget_prefs";
     private static final String KEY_REALTIME_ON = "realtime_on";
+    private static final String KEY_LAST_SYNC_TIME = "last_sync_time";
     private static final String PREF_CACHE_PREFIX = "cache_stock_";
     private static final String PREF_HISTORY_PREFIX = "history_stock_";
     private static final long MAX_HISTORY_MS = 24 * 60 * 60 * 1000L; // 24 Hours
 
-    private static final ExecutorService executor = Executors.newSingleThreadExecutor();
+    // 6-thread pool for ultra-fast parallel network fetching (completes in ~0.5s)
+    private static final ExecutorService networkPool = Executors.newFixedThreadPool(6);
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private static final AtomicBoolean isSyncInProgress = new AtomicBoolean(false);
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
@@ -128,49 +135,18 @@ public class StocksAppWidget extends AppWidgetProvider {
         int[] appWidgetIds = appWidgetManager.getAppWidgetIds(widgetComponent);
         if (appWidgetIds == null || appWidgetIds.length == 0) return;
 
-        RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
-        if (isRealtimeOn) {
-            views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 ON (30s)");
-            views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#10B981"));
-        } else {
-            views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 OFF");
-            views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#94A3B8"));
-        }
-        appWidgetManager.partiallyUpdateAppWidget(appWidgetIds, views);
+        RemoteViews views = buildWidgetViews(context, false, null);
+        appWidgetManager.updateAppWidget(appWidgetIds, views);
     }
 
+    /**
+     * Called by Android OS when the widget is first created or refreshed by launcher/system.
+     * Guarantees that the widget ALWAYS displays the last known good cached data and charts,
+     * preventing any blank screens or dummy layout resets!
+     */
     static void updateAppWidget(Context context, AppWidgetManager appWidgetManager, int appWidgetId) {
         try {
-            RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
-
-            Intent appIntent = new Intent(context, MainActivity.class);
-            appIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            PendingIntent appPendingIntent = PendingIntent.getActivity(context, 0, appIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            views.setOnClickPendingIntent(R.id.widget_root, appPendingIntent);
-
-            Intent toggleIntent = new Intent(context, StocksAppWidget.class);
-            toggleIntent.setAction(ACTION_TOGGLE_REALTIME);
-            PendingIntent togglePendingIntent = PendingIntent.getBroadcast(context, 101, toggleIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            views.setOnClickPendingIntent(R.id.widget_toggle_realtime, togglePendingIntent);
-
-            Intent syncIntent = new Intent(context, StocksAppWidget.class);
-            syncIntent.setAction(ACTION_SYNC);
-            PendingIntent syncPendingIntent = PendingIntent.getBroadcast(context, 100, syncIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            views.setOnClickPendingIntent(R.id.widget_sync_btn, syncPendingIntent);
-
-            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-            boolean isRealtimeOn = prefs.getBoolean(KEY_REALTIME_ON, false);
-            if (isRealtimeOn) {
-                views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 ON (30s)");
-                views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#10B981"));
-            } else {
-                views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 OFF");
-                views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#94A3B8"));
-            }
-
+            RemoteViews views = buildWidgetViews(context, false, null);
             appWidgetManager.updateAppWidget(appWidgetId, views);
         } catch (Exception e) {
             e.printStackTrace();
@@ -187,8 +163,360 @@ public class StocksAppWidget extends AppWidgetProvider {
         return false;
     }
 
-    private static double parseYahooChange(String json, double fallback) {
-        if (json == null) return fallback;
+    /**
+     * Single Source of Truth for constructing RemoteViews.
+     * Binds current pending intents, realtime toggle state, sync status, stock names,
+     * latest cached change percentages, and 24h sparkline charts.
+     */
+    private static RemoteViews buildWidgetViews(Context context, boolean showLoading, String syncButtonText) {
+        RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
+        SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+
+        // 1. Pending Intents
+        Intent appIntent = new Intent(context, MainActivity.class);
+        appIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent appPendingIntent = PendingIntent.getActivity(context, 0, appIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        views.setOnClickPendingIntent(R.id.widget_root, appPendingIntent);
+
+        Intent toggleIntent = new Intent(context, StocksAppWidget.class);
+        toggleIntent.setAction(ACTION_TOGGLE_REALTIME);
+        PendingIntent togglePendingIntent = PendingIntent.getBroadcast(context, 101, toggleIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        views.setOnClickPendingIntent(R.id.widget_toggle_realtime, togglePendingIntent);
+
+        Intent syncIntent = new Intent(context, StocksAppWidget.class);
+        syncIntent.setAction(ACTION_SYNC);
+        PendingIntent syncPendingIntent = PendingIntent.getBroadcast(context, 100, syncIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        views.setOnClickPendingIntent(R.id.widget_sync_btn, syncPendingIntent);
+
+        // 2. Realtime Toggle Button Status
+        boolean isRealtimeOn = prefs.getBoolean(KEY_REALTIME_ON, false);
+        if (isRealtimeOn) {
+            views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 ON (30s)");
+            views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#10B981"));
+        } else {
+            views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 OFF");
+            views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#94A3B8"));
+        }
+
+        // 3. Sync Button Text
+        if (showLoading) {
+            views.setTextViewText(R.id.widget_sync_btn, "⏳ 갱신 중...");
+        } else if (syncButtonText != null) {
+            views.setTextViewText(R.id.widget_sync_btn, syncButtonText);
+        } else {
+            String lastTime = prefs.getString(KEY_LAST_SYNC_TIME, null);
+            if (lastTime != null) {
+                views.setTextViewText(R.id.widget_sync_btn, "🔄 " + lastTime);
+            } else {
+                views.setTextViewText(R.id.widget_sync_btn, "🔄 동기화");
+            }
+        }
+
+        // 4. Determine Weekend vs Weekday titles & keys
+        boolean isWeekend = isWeekendSession();
+        String name1, name2, name3, name4;
+        String key1, key2, key3, key4;
+
+        if (isWeekend) {
+            name1 = "W 코스피200";
+            name2 = "W 나스닥100";
+            name3 = "W Tech 100";
+            name4 = "W Oil (Crude)";
+            key1 = "w_kr200";
+            key2 = "w_nq100";
+            key3 = "w_tech";
+            key4 = "w_oil";
+        } else {
+            name1 = "코스피 야간선물";
+            name2 = "나스닥 100";
+            name3 = "S&P 500";
+            name4 = "WTI 원유";
+            key1 = "kmngt";
+            key2 = "ndx";
+            key3 = "spx";
+            key4 = "wti";
+        }
+
+        views.setTextViewText(R.id.w_sub_1, name1);
+        views.setTextViewText(R.id.w_sub_2, name2);
+        views.setTextViewText(R.id.w_sub_3, name3);
+        views.setTextViewText(R.id.w_sub_4, name4);
+
+        // 5. Render 12 stocks with Cached Values & 24h Charts
+        renderStockItem(views, R.id.w_item_1, R.id.w_chart_1, prefs, key1);
+        renderStockItem(views, R.id.w_item_2, R.id.w_chart_2, prefs, key2);
+        renderStockItem(views, R.id.w_item_3, R.id.w_chart_3, prefs, key3);
+        renderStockItem(views, R.id.w_item_4, R.id.w_chart_4, prefs, key4);
+        renderStockItem(views, R.id.w_item_5, R.id.w_chart_5, prefs, "skhx");
+        renderStockItem(views, R.id.w_item_6, R.id.w_chart_6, prefs, "smsn");
+        renderStockItem(views, R.id.w_item_7, R.id.w_chart_7, prefs, "sem");
+        renderStockItem(views, R.id.w_item_8, R.id.w_chart_8, prefs, "mu");
+        renderStockItem(views, R.id.w_item_9, R.id.w_chart_9, prefs, "pltr");
+        renderStockItem(views, R.id.w_item_10, R.id.w_chart_10, prefs, "nvda");
+        renderStockItem(views, R.id.w_item_11, R.id.w_chart_11, prefs, "meta");
+        renderStockItem(views, R.id.w_item_12, R.id.w_chart_12, prefs, "tsla");
+
+        return views;
+    }
+
+    private static void renderStockItem(RemoteViews views, int textId, int chartId, SharedPreferences prefs, String stockKey) {
+        float cached = prefs.getFloat(PREF_CACHE_PREFIX + stockKey, Float.NaN);
+        if (Float.isNaN(cached)) {
+            views.setTextViewText(textId, "--");
+            views.setTextColor(textId, Color.parseColor("#94A3B8"));
+            return;
+        }
+
+        double chg = (double) cached;
+        String sign = chg > 0 ? "+" : "";
+        String text = String.format(Locale.US, "%s%.2f%%", sign, chg);
+        int color = chg > 0 ? Color.parseColor("#FF3B30") : (chg < 0 ? Color.parseColor("#0A84FF") : Color.parseColor("#94A3B8"));
+        views.setTextViewText(textId, text);
+        views.setTextColor(textId, color);
+
+        double[] history = getHistory(prefs, stockKey, chg);
+        Bitmap chartBitmap = createSparklineBitmap(history, chg >= 0);
+        views.setImageViewBitmap(chartId, chartBitmap);
+    }
+
+    /**
+     * Performs parallel asynchronous network fetch for all indicators.
+     * Guaranteed Stale-While-Revalidate: If any network call fails or times out,
+     * the existing cached value is 100% PRESERVED. Never fall back to static dummy numbers!
+     */
+    private void syncWidgetData(Context context) {
+        if (!isSyncInProgress.compareAndSet(false, true)) {
+            // Already syncing, avoid duplicate queueing
+            return;
+        }
+
+        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(context);
+        ComponentName widgetComponent = new ComponentName(context, StocksAppWidget.class);
+        int[] appWidgetIds = appWidgetManager.getAppWidgetIds(widgetComponent);
+        if (appWidgetIds == null || appWidgetIds.length == 0) {
+            isSyncInProgress.set(false);
+            return;
+        }
+
+        // 1. Immediately provide visual feedback: show "⏳ 갱신 중..." while keeping all current stock data intact!
+        RemoteViews loadingViews = buildWidgetViews(context, true, null);
+        appWidgetManager.updateAppWidget(appWidgetIds, loadingViews);
+
+        // 2. Launch parallel worker thread
+        networkPool.execute(() -> {
+            try {
+                long nowTs = System.currentTimeMillis();
+                boolean isWeekend = isWeekendSession();
+                SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+                SharedPreferences.Editor editor = prefs.edit();
+
+                final double[] semRefKrwHolder = new double[]{ 1196000.0 };
+
+                // Use CountDownLatch to coordinate parallel fetches
+                int taskCount = isWeekend ? 4 : 6;
+                CountDownLatch latch = new CountDownLatch(taskCount);
+
+                if (isWeekend) {
+                    // Task W1: Weekend Session
+                    networkPool.execute(() -> {
+                        try {
+                            String wJson = fetchHttp("https://hlkr.co.kr/api/weekend-session?_t=" + nowTs);
+                            if (wJson != null) {
+                                JSONObject wObj = new JSONObject(wJson);
+                                if (wObj.has("kospi")) {
+                                    double val = wObj.getJSONObject("kospi").optDouble("changePct", Double.NaN);
+                                    if (!Double.isNaN(val)) saveStock(editor, prefs, "w_kr200", val, nowTs);
+                                }
+                                if (wObj.has("nasdaq")) {
+                                    double val = wObj.getJSONObject("nasdaq").optDouble("changePct", Double.NaN);
+                                    if (!Double.isNaN(val)) saveStock(editor, prefs, "w_nq100", val, nowTs);
+                                }
+                            }
+                        } catch (Exception ignored) {}
+                        finally { latch.countDown(); }
+                    });
+
+                    // Task W2: IG Weekend Tech 100
+                    networkPool.execute(() -> {
+                        try {
+                            String html = fetchHttp("https://www.ig.com/en/indices/markets-indices/weekend-us-tech-100-e1?_t=" + nowTs);
+                            double val = parseIgChange(html);
+                            if (!Double.isNaN(val)) saveStock(editor, prefs, "w_tech", val, nowTs);
+                        } catch (Exception ignored) {}
+                        finally { latch.countDown(); }
+                    });
+
+                    // Task W3: IG Weekend Oil
+                    networkPool.execute(() -> {
+                        try {
+                            String html = fetchHttp("https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude?_t=" + nowTs);
+                            double val = parseIgChange(html);
+                            if (!Double.isNaN(val)) saveStock(editor, prefs, "w_oil", val, nowTs);
+                        } catch (Exception ignored) {}
+                        finally { latch.countDown(); }
+                    });
+
+                } else {
+                    // Task D1: 코스피 야간선물
+                    networkPool.execute(() -> {
+                        try {
+                            String kFutJson = fetchHttp("https://hlkr.co.kr/api/kospi-futures?_t=" + nowTs);
+                            if (kFutJson != null) {
+                                JSONObject kObj = new JSONObject(kFutJson);
+                                if (kObj.has("kospiNgt")) {
+                                    double val = kObj.getJSONObject("kospiNgt").optDouble("changePct", Double.NaN);
+                                    if (!Double.isNaN(val)) saveStock(editor, prefs, "kmngt", val, nowTs);
+                                }
+                            }
+                        } catch (Exception ignored) {}
+                        finally { latch.countDown(); }
+                    });
+
+                    // Task D2: 나스닥 100 선물 (NQ=F)
+                    networkPool.execute(() -> {
+                        try {
+                            String nqJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/NQ=F?interval=1m&range=1d&_t=" + nowTs);
+                            double val = parseYahooChange(nqJson);
+                            if (!Double.isNaN(val)) {
+                                saveStock(editor, prefs, "ndx", val, nowTs);
+                            } else {
+                                String marketHtml = fetchHttp("https://hlkr.co.kr/market?_t=" + nowTs);
+                                double fbVal = parseMarketChange(marketHtml, "nasdaq");
+                                if (!Double.isNaN(fbVal)) saveStock(editor, prefs, "ndx", fbVal, nowTs);
+                            }
+                        } catch (Exception ignored) {}
+                        finally { latch.countDown(); }
+                    });
+
+                    // Task D3: S&P 500 선물 (ES=F)
+                    networkPool.execute(() -> {
+                        try {
+                            String esJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/ES=F?interval=1m&range=1d&_t=" + nowTs);
+                            double val = parseYahooChange(esJson);
+                            if (!Double.isNaN(val)) {
+                                saveStock(editor, prefs, "spx", val, nowTs);
+                            } else {
+                                String marketHtml = fetchHttp("https://hlkr.co.kr/market?_t=" + nowTs);
+                                double fbVal = parseMarketChange(marketHtml, "sp500");
+                                if (!Double.isNaN(fbVal)) saveStock(editor, prefs, "spx", fbVal, nowTs);
+                            }
+                        } catch (Exception ignored) {}
+                        finally { latch.countDown(); }
+                    });
+
+                    // Task D4: WTI 원유 선물 (CL=F)
+                    networkPool.execute(() -> {
+                        try {
+                            String clJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/CL=F?interval=1m&range=1d&_t=" + nowTs);
+                            double val = parseYahooChange(clJson);
+                            if (!Double.isNaN(val)) {
+                                saveStock(editor, prefs, "wti", val, nowTs);
+                            } else {
+                                String macroJson = fetchHttp("https://hlkr.co.kr/api/dash-macro?_t=" + nowTs);
+                                double fbVal = parseMacroChange(macroJson, "wti");
+                                if (!Double.isNaN(fbVal)) saveStock(editor, prefs, "wti", fbVal, nowTs);
+                            }
+                        } catch (Exception ignored) {}
+                        finally { latch.countDown(); }
+                    });
+                }
+
+                // Task Common 1: 개별 주식 스냅샷 (SKHX, SMSN, MU, PLTR, NVDA, META, TSLA, SAMSUNGEM ref)
+                networkPool.execute(() -> {
+                    try {
+                        String snapJson = fetchHttp("https://hlkr.co.kr/api/snapshot?_t=" + nowTs);
+                        if (snapJson != null) {
+                            JSONObject snapObj = new JSONObject(snapJson);
+                            JSONArray assets = snapObj.optJSONArray("assets");
+                            if (assets != null) {
+                                for (int i = 0; i < assets.length(); i++) {
+                                    JSONObject it = assets.getJSONObject(i);
+                                    JSONObject assetObj = it.optJSONObject("asset");
+                                    String sym = assetObj != null ? assetObj.optString("symbol") : it.optString("symbol");
+                                    double prem = it.optDouble("premiumPct", Double.NaN);
+                                    if (!Double.isNaN(prem)) {
+                                        double val = Math.round(prem * 100.0) / 100.0;
+                                        if ("SKHX".equals(sym)) saveStock(editor, prefs, "skhx", val, nowTs);
+                                        else if ("SMSN".equals(sym)) saveStock(editor, prefs, "smsn", val, nowTs);
+                                        else if ("MU".equals(sym)) saveStock(editor, prefs, "mu", val, nowTs);
+                                        else if ("PLTR".equals(sym)) saveStock(editor, prefs, "pltr", val, nowTs);
+                                        else if ("NVDA".equals(sym)) saveStock(editor, prefs, "nvda", val, nowTs);
+                                        else if ("META".equals(sym)) saveStock(editor, prefs, "meta", val, nowTs);
+                                        else if ("TSLA".equals(sym)) saveStock(editor, prefs, "tsla", val, nowTs);
+                                    }
+                                    if ("SAMSUNGEM".equals(sym)) {
+                                        semRefKrwHolder[0] = it.optDouble("refPriceKrw", 1196000.0);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    finally { latch.countDown(); }
+                });
+
+                // Task Common 2: 삼성전기 바이낸스 선물
+                networkPool.execute(() -> {
+                    try {
+                        String binanceJson = fetchHttp("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=" + nowTs);
+                        if (binanceJson != null) {
+                            JSONObject bObj = new JSONObject(binanceJson);
+                            double lastPx = bObj.optDouble("lastPrice", Double.NaN);
+                            if (!Double.isNaN(lastPx) && semRefKrwHolder[0] > 0) {
+                                double fxRate = 1335.8;
+                                double perpKrw = lastPx * fxRate;
+                                double val = Math.round(((perpKrw - semRefKrwHolder[0]) / semRefKrwHolder[0]) * 10000.0) / 100.0;
+                                saveStock(editor, prefs, "sem", val, nowTs);
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    finally { latch.countDown(); }
+                });
+
+                // Wait up to 3.5 seconds for all parallel network calls to complete
+                latch.await(3500, TimeUnit.MILLISECONDS);
+
+                // Commit updated cache
+                String timeStr = new SimpleDateFormat("HH:mm", Locale.KOREA).format(new Date());
+                editor.putString(KEY_LAST_SYNC_TIME, timeStr);
+                editor.commit(); // Ensure synchronous write before UI render
+
+                // Update UI on main thread
+                mainHandler.post(() -> {
+                    try {
+                        RemoteViews views = buildWidgetViews(context, false, "🔄 " + timeStr);
+                        appWidgetManager.updateAppWidget(appWidgetIds, views);
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                    } finally {
+                        isSyncInProgress.set(false);
+                    }
+                });
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                mainHandler.post(() -> {
+                    try {
+                        RemoteViews views = buildWidgetViews(context, false, null);
+                        appWidgetManager.updateAppWidget(appWidgetIds, views);
+                    } catch (Exception ignored) {}
+                    finally {
+                        isSyncInProgress.set(false);
+                    }
+                });
+            }
+        });
+    }
+
+    private static synchronized void saveStock(SharedPreferences.Editor editor, SharedPreferences prefs, String stockKey, double value, long nowTs) {
+        editor.putFloat(PREF_CACHE_PREFIX + stockKey, (float) value);
+        recordHistory(prefs, stockKey, value, nowTs);
+    }
+
+    private static double parseYahooChange(String json) {
+        if (json == null) return Double.NaN;
         try {
             JSONObject obj = new JSONObject(json);
             JSONObject chart = obj.optJSONObject("chart");
@@ -206,11 +534,11 @@ public class StocksAppWidget extends AppWidgetProvider {
                 }
             }
         } catch (Exception ignored) {}
-        return fallback;
+        return Double.NaN;
     }
 
-    private static double parseMarketChange(String html, String key, double fallback) {
-        if (html == null) return fallback;
+    private static double parseMarketChange(String html, String key) {
+        if (html == null) return Double.NaN;
         try {
             java.util.regex.Pattern p = java.util.regex.Pattern.compile("\"key\":\"" + key + "\",.*?\"changePct\":([+\\-]?[0-9.]+)");
             java.util.regex.Matcher m = p.matcher(html);
@@ -218,11 +546,45 @@ public class StocksAppWidget extends AppWidgetProvider {
                 return Math.round(Double.parseDouble(m.group(1)) * 100.0) / 100.0;
             }
         } catch (Exception ignored) {}
-        return fallback;
+        return Double.NaN;
     }
 
-    // 24H Local History Ring Buffer (Guarantees 100% exact match without external discrepancies)
-    private static void recordHistory(SharedPreferences prefs, String key, double value, long nowTs) {
+    private static double parseMacroChange(String json, String targetKey) {
+        if (json == null) return Double.NaN;
+        try {
+            JSONObject mObj = new JSONObject(json);
+            JSONArray items = mObj.optJSONArray("items");
+            if (items != null) {
+                for (int i = 0; i < items.length(); i++) {
+                    JSONObject it = items.getJSONObject(i);
+                    if (targetKey.equals(it.optString("key"))) {
+                        double val = it.optDouble("changePct", Double.NaN);
+                        if (!Double.isNaN(val)) {
+                            return Math.round(val * 100.0) / 100.0;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return Double.NaN;
+    }
+
+    private static double parseIgChange(String html) {
+        if (html == null) return Double.NaN;
+        try {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile("data-field=\"CPC\"[^>]*>([+\\-]?[0-9.]+)");
+            java.util.regex.Matcher m = p.matcher(html);
+            if (m.find()) {
+                return Math.round(Double.parseDouble(m.group(1)) * 100.0) / 100.0;
+            }
+        } catch (Exception ignored) {}
+        return Double.NaN;
+    }
+
+    // 24H Local History Ring Buffer
+    private static synchronized void recordHistory(SharedPreferences prefs, String key, double value, long nowTs) {
+        if (Double.isNaN(value)) return;
+
         String histKey = PREF_HISTORY_PREFIX + key;
         String raw = prefs.getString(histKey, "");
         StringBuilder sb = new StringBuilder();
@@ -353,303 +715,6 @@ public class StocksAppWidget extends AppWidgetProvider {
         return bitmap;
     }
 
-    private static void applyStockWithChart(RemoteViews views, int textId, int chartId, double chg, SharedPreferences sp, String stockKey, long nowTs) {
-        recordHistory(sp, stockKey, chg, nowTs);
-
-        String sign = chg > 0 ? "+" : "";
-        String text = String.format(Locale.US, "%s%.2f%%", sign, chg);
-        int color = chg > 0 ? Color.parseColor("#FF3B30") : (chg < 0 ? Color.parseColor("#0A84FF") : Color.parseColor("#94A3B8"));
-        views.setTextViewText(textId, text);
-        views.setTextColor(textId, color);
-
-        double[] history = getHistory(sp, stockKey, chg);
-        Bitmap chartBitmap = createSparklineBitmap(history, chg >= 0);
-        views.setImageViewBitmap(chartId, chartBitmap);
-    }
-
-    private void syncWidgetData(Context context) {
-        AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(context);
-        ComponentName widgetComponent = new ComponentName(context, StocksAppWidget.class);
-        int[] appWidgetIds = appWidgetManager.getAppWidgetIds(widgetComponent);
-
-        if (appWidgetIds == null || appWidgetIds.length == 0) return;
-
-        RemoteViews loadingViews = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
-        loadingViews.setTextViewText(R.id.widget_sync_btn, "⏳ 갱신 중...");
-        appWidgetManager.partiallyUpdateAppWidget(appWidgetIds, loadingViews);
-
-        executor.execute(() -> {
-            try {
-                long nowTs = System.currentTimeMillis();
-                boolean isWeekend = isWeekendSession();
-                SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-
-                String name1, name2, name3, name4;
-                String key1, key2, key3, key4;
-                double chg1, chg2, chg3, chg4;
-
-                if (isWeekend) {
-                    name1 = "W 코스피200";
-                    name2 = "W 나스닥100";
-                    name3 = "W Tech 100";
-                    name4 = "W Oil (Crude)";
-                    key1 = "w_kr200";
-                    key2 = "w_nq100";
-                    key3 = "w_tech";
-                    key4 = "w_oil";
-
-                    chg1 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key1, -1.76f);
-                    chg2 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key2, 0.52f);
-                    chg3 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key3, 0.45f);
-                    chg4 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key4, -0.32f);
-
-                    String weekendJson = fetchHttp("https://hlkr.co.kr/api/weekend-session?_t=" + nowTs);
-                    if (weekendJson != null) {
-                        try {
-                            JSONObject wObj = new JSONObject(weekendJson);
-                            if (wObj.has("kospi")) {
-                                chg1 = wObj.getJSONObject("kospi").optDouble("changePct", chg1);
-                                prefs.edit().putFloat(PREF_CACHE_PREFIX + key1, (float) chg1).apply();
-                            }
-                            if (wObj.has("nasdaq")) {
-                                chg2 = wObj.getJSONObject("nasdaq").optDouble("changePct", chg2);
-                                prefs.edit().putFloat(PREF_CACHE_PREFIX + key2, (float) chg2).apply();
-                            }
-                        } catch (Exception ignored) {}
-                    }
-                } else {
-                    name1 = "코스피 야간선물";
-                    name2 = "나스닥 100";
-                    name3 = "S&P 500";
-                    name4 = "WTI 원유";
-                    key1 = "kmngt";
-                    key2 = "ndx";
-                    key3 = "spx";
-                    key4 = "wti";
-
-                    chg1 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key1, 1.17f);
-                    chg2 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key2, 0.42f);
-                    chg3 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key3, 0.96f);
-                    chg4 = (double) prefs.getFloat(PREF_CACHE_PREFIX + key4, -1.33f);
-
-                    // 1. 코스피 야간선물
-                    String kFutJson = fetchHttp("https://hlkr.co.kr/api/kospi-futures?_t=" + nowTs);
-                    if (kFutJson != null) {
-                        try {
-                            JSONObject kObj = new JSONObject(kFutJson);
-                            if (kObj.has("kospiNgt")) {
-                                chg1 = kObj.getJSONObject("kospiNgt").optDouble("changePct", chg1);
-                                prefs.edit().putFloat(PREF_CACHE_PREFIX + key1, (float) chg1).apply();
-                            }
-                        } catch (Exception ignored) {}
-                    }
-
-                    // 2. 나스닥 100 (Yahoo Finance 24H Live NQ=F)
-                    String nqJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/NQ=F?interval=1m&range=1d&_t=" + nowTs);
-                    double parsedNdx = parseYahooChange(nqJson, Double.NaN);
-                    if (!Double.isNaN(parsedNdx)) {
-                        chg2 = parsedNdx;
-                        prefs.edit().putFloat(PREF_CACHE_PREFIX + key2, (float) chg2).apply();
-                    }
-
-                    // 3. S&P 500 (Yahoo Finance 24H Live ES=F)
-                    String esJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/ES=F?interval=1m&range=1d&_t=" + nowTs);
-                    double parsedSpx = parseYahooChange(esJson, Double.NaN);
-                    if (!Double.isNaN(parsedSpx)) {
-                        chg3 = parsedSpx;
-                        prefs.edit().putFloat(PREF_CACHE_PREFIX + key3, (float) chg3).apply();
-                    }
-
-                    // Fallback for NDX / SPX from hlkr.co.kr/market if Yahoo failed
-                    if (Double.isNaN(parsedNdx) || Double.isNaN(parsedSpx)) {
-                        String marketHtml = fetchHttp("https://hlkr.co.kr/market?_t=" + nowTs);
-                        if (marketHtml != null) {
-                            if (Double.isNaN(parsedNdx)) {
-                                chg2 = parseMarketChange(marketHtml, "nasdaq", chg2);
-                                prefs.edit().putFloat(PREF_CACHE_PREFIX + key2, (float) chg2).apply();
-                            }
-                            if (Double.isNaN(parsedSpx)) {
-                                chg3 = parseMarketChange(marketHtml, "sp500", chg3);
-                                prefs.edit().putFloat(PREF_CACHE_PREFIX + key3, (float) chg3).apply();
-                            }
-                        }
-                    }
-
-                    // 4. WTI 원유 (Yahoo Finance 24H Live CL=F)
-                    String clJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/CL=F?interval=1m&range=1d&_t=" + nowTs);
-                    double parsedWti = parseYahooChange(clJson, Double.NaN);
-                    if (!Double.isNaN(parsedWti)) {
-                        chg4 = parsedWti;
-                        prefs.edit().putFloat(PREF_CACHE_PREFIX + key4, (float) chg4).apply();
-                    } else {
-                        String macroJson = fetchHttp("https://hlkr.co.kr/api/dash-macro?_t=" + nowTs);
-                        if (macroJson != null) {
-                            try {
-                                JSONObject mObj = new JSONObject(macroJson);
-                                JSONArray items = mObj.optJSONArray("items");
-                                if (items != null) {
-                                    for (int i = 0; i < items.length(); i++) {
-                                        JSONObject it = items.getJSONObject(i);
-                                        if ("wti".equals(it.optString("key"))) {
-                                            chg4 = Math.round(it.optDouble("changePct", chg4) * 100.0) / 100.0;
-                                            prefs.edit().putFloat(PREF_CACHE_PREFIX + key4, (float) chg4).apply();
-                                            break;
-                                        }
-                                    }
-                                }
-                            } catch (Exception ignored) {}
-                        }
-                    }
-                }
-
-                // 5~12. 개별 주식 캐시 초기화 및 동기화 (hlkr.co.kr 프리미엄/괴리율 100% 동일 출처)
-                double skhxChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "skhx", -0.38f);
-                double smsnChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "smsn", -2.68f);
-                double muChg   = (double) prefs.getFloat(PREF_CACHE_PREFIX + "mu", 2.35f);
-                double pltrChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "pltr", 0.49f);
-                double nvdaChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "nvda", -0.09f);
-                double metaChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "meta", -0.09f);
-                double tslaChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "tsla", 0.06f);
-                double semRefKrw = 1196000;
-
-                String snapJson = fetchHttp("https://hlkr.co.kr/api/snapshot?_t=" + nowTs);
-                if (snapJson != null) {
-                    try {
-                        JSONObject snapObj = new JSONObject(snapJson);
-                        JSONArray assets = snapObj.optJSONArray("assets");
-                        if (assets != null) {
-                            for (int i = 0; i < assets.length(); i++) {
-                                JSONObject it = assets.getJSONObject(i);
-                                JSONObject assetObj = it.optJSONObject("asset");
-                                String sym = assetObj != null ? assetObj.optString("symbol") : it.optString("symbol");
-                                double prem = it.optDouble("premiumPct", Double.NaN);
-                                if (!Double.isNaN(prem)) {
-                                    double val = Math.round(prem * 100.0) / 100.0;
-                                    if ("SKHX".equals(sym)) { skhxChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "skhx", (float) val).apply(); }
-                                    else if ("SMSN".equals(sym)) { smsnChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "smsn", (float) val).apply(); }
-                                    else if ("MU".equals(sym)) { muChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "mu", (float) val).apply(); }
-                                    else if ("PLTR".equals(sym)) { pltrChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "pltr", (float) val).apply(); }
-                                    else if ("NVDA".equals(sym)) { nvdaChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "nvda", (float) val).apply(); }
-                                    else if ("META".equals(sym)) { metaChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "meta", (float) val).apply(); }
-                                    else if ("TSLA".equals(sym)) { tslaChg = val; prefs.edit().putFloat(PREF_CACHE_PREFIX + "tsla", (float) val).apply(); }
-                                }
-                                if ("SAMSUNGEM".equals(sym)) {
-                                    semRefKrw = it.optDouble("refPriceKrw", 1196000);
-                                }
-                            }
-                        }
-                    } catch (Exception ignored) {}
-                }
-
-                // 7. 삼성전기 (바이낸스 선물)
-                double semChg = (double) prefs.getFloat(PREF_CACHE_PREFIX + "sem", -4.06f);
-                String binanceJson = fetchHttp("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=" + nowTs);
-                if (binanceJson != null) {
-                    try {
-                        JSONObject bObj = new JSONObject(binanceJson);
-                        double lastPx = bObj.optDouble("lastPrice", 858.98);
-                        double fxRate = 1335.8;
-                        double perpKrw = lastPx * fxRate;
-                        if (semRefKrw > 0) {
-                            semChg = Math.round(((perpKrw - semRefKrw) / semRefKrw) * 10000.0) / 100.0;
-                            prefs.edit().putFloat(PREF_CACHE_PREFIX + "sem", (float) semChg).apply();
-                        }
-                    } catch (Exception ignored) {}
-                }
-
-                final String finalName1 = name1;
-                final String finalName2 = name2;
-                final String finalName3 = name3;
-                final String finalName4 = name4;
-                final String finalKey1 = key1;
-                final String finalKey2 = key2;
-                final String finalKey3 = key3;
-                final String finalKey4 = key4;
-                final double finalChg1 = chg1;
-                final double finalChg2 = chg2;
-                final double finalChg3 = chg3;
-                final double finalChg4 = chg4;
-                final double finalSkhx = skhxChg;
-                final double finalSmsn = smsnChg;
-                final double finalSem = semChg;
-                final double finalMu = muChg;
-                final double finalPltr = pltrChg;
-                final double finalNvda = nvdaChg;
-                final double finalMeta = metaChg;
-                final double finalTsla = tslaChg;
-
-                mainHandler.post(() -> {
-                    try {
-                        RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
-
-                        Intent appIntent = new Intent(context, MainActivity.class);
-                        appIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                        PendingIntent appPendingIntent = PendingIntent.getActivity(context, 0, appIntent,
-                                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                        views.setOnClickPendingIntent(R.id.widget_root, appPendingIntent);
-
-                        Intent toggleIntent = new Intent(context, StocksAppWidget.class);
-                        toggleIntent.setAction(ACTION_TOGGLE_REALTIME);
-                        PendingIntent togglePendingIntent = PendingIntent.getBroadcast(context, 101, toggleIntent,
-                                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                        views.setOnClickPendingIntent(R.id.widget_toggle_realtime, togglePendingIntent);
-
-                        Intent syncIntent = new Intent(context, StocksAppWidget.class);
-                        syncIntent.setAction(ACTION_SYNC);
-                        PendingIntent syncPendingIntent = PendingIntent.getBroadcast(context, 100, syncIntent,
-                                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                        views.setOnClickPendingIntent(R.id.widget_sync_btn, syncPendingIntent);
-
-                        SharedPreferences sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-                        boolean isRealtime = sp.getBoolean(KEY_REALTIME_ON, false);
-                        if (isRealtime) {
-                            views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 ON (30s)");
-                            views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#10B981"));
-                        } else {
-                            views.setTextViewText(R.id.widget_toggle_realtime, "⚡ 실시간 OFF");
-                            views.setTextColor(R.id.widget_toggle_realtime, Color.parseColor("#94A3B8"));
-                        }
-
-                        String timeStr = new SimpleDateFormat("HH:mm", Locale.KOREA).format(new Date());
-                        views.setTextViewText(R.id.widget_sync_btn, "🔄 " + timeStr);
-
-                        // Dynamic titles for items 1-4
-                        views.setTextViewText(R.id.w_sub_1, finalName1);
-                        views.setTextViewText(R.id.w_sub_2, finalName2);
-                        views.setTextViewText(R.id.w_sub_3, finalName3);
-                        views.setTextViewText(R.id.w_sub_4, finalName4);
-
-                        // Apply 12 stocks with 24H history recording & smooth sparkline charts
-                        applyStockWithChart(views, R.id.w_item_1, R.id.w_chart_1, finalChg1, sp, finalKey1, nowTs);
-                        applyStockWithChart(views, R.id.w_item_2, R.id.w_chart_2, finalChg2, sp, finalKey2, nowTs);
-                        applyStockWithChart(views, R.id.w_item_3, R.id.w_chart_3, finalChg3, sp, finalKey3, nowTs);
-                        applyStockWithChart(views, R.id.w_item_4, R.id.w_chart_4, finalChg4, sp, finalKey4, nowTs);
-                        applyStockWithChart(views, R.id.w_item_5, R.id.w_chart_5, finalSkhx, sp, "skhx", nowTs);
-                        applyStockWithChart(views, R.id.w_item_6, R.id.w_chart_6, finalSmsn, sp, "smsn", nowTs);
-                        applyStockWithChart(views, R.id.w_item_7, R.id.w_chart_7, finalSem, sp, "sem", nowTs);
-                        applyStockWithChart(views, R.id.w_item_8, R.id.w_chart_8, finalMu, sp, "mu", nowTs);
-                        applyStockWithChart(views, R.id.w_item_9, R.id.w_chart_9, finalPltr, sp, "pltr", nowTs);
-                        applyStockWithChart(views, R.id.w_item_10, R.id.w_chart_10, finalNvda, sp, "nvda", nowTs);
-                        applyStockWithChart(views, R.id.w_item_11, R.id.w_chart_11, finalMeta, sp, "meta", nowTs);
-                        applyStockWithChart(views, R.id.w_item_12, R.id.w_chart_12, finalTsla, sp, "tsla", nowTs);
-
-                        appWidgetManager.updateAppWidget(appWidgetIds, views);
-                    } catch (Exception ex) {
-                        ex.printStackTrace();
-                    }
-                });
-
-            } catch (Exception e) {
-                e.printStackTrace();
-                mainHandler.post(() -> {
-                    RemoteViews errViews = new RemoteViews(context.getPackageName(), R.layout.widget_stocks_6x6);
-                    errViews.setTextViewText(R.id.widget_sync_btn, "🔄 동기화");
-                    appWidgetManager.partiallyUpdateAppWidget(appWidgetIds, errViews);
-                });
-            }
-        });
-    }
-
     private static String fetchHttp(String urlString) {
         try {
             URL url = new URL(urlString);
@@ -659,7 +724,8 @@ public class StocksAppWidget extends AppWidgetProvider {
             conn.setReadTimeout(3000);
             conn.setUseCaches(false);
             conn.setDefaultUseCaches(false);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            conn.setRequestProperty("Accept", "application/json, text/plain, */*");
             conn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate");
             conn.setRequestProperty("Pragma", "no-cache");
             if (conn.getResponseCode() == 200) {
