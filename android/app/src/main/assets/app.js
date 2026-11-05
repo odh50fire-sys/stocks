@@ -344,9 +344,13 @@ async function fetchAllIndicators() {
     let binanceSemText = resolvedBinanceSemText;
 
     let snapMap = {};
+    let currentFxRate = 1346.0;
     if (snapRes.status === 'fulfilled' && snapRes.value) {
       try {
         const sJson = JSON.parse(snapRes.value);
+        if (sJson.fx && sJson.fx.rate) {
+          currentFxRate = parseFloat(sJson.fx.rate);
+        }
         const assets = sJson.assets || sJson.items || [];
         if (Array.isArray(assets)) {
           assets.forEach(it => {
@@ -381,14 +385,14 @@ async function fetchAllIndicators() {
     const [skhx_px, skhx_chg] = getStock('SKHX', 1061.2, -0.35);
     const [smsn_px, smsn_chg] = getStock('SMSN', 164.05, -2.68);
 
-    let sem_px = 1147425, sem_chg = -4.06;
+    let sem_px = 964960, sem_chg = 2.22;
     if (binanceSemText.status === 'fulfilled' && binanceSemText.value) {
       try {
         const bJson = JSON.parse(binanceSemText.value);
-        const bUsd = parseFloat(bJson.lastPrice || '858.98');
-        const fxRate = 1335.8;
+        const bUsd = parseFloat(bJson.lastPrice || '716.0');
+        const fxRate = currentFxRate;
         const perpKrw = bUsd * fxRate;
-        const refKrw = (snapMap['SAMSUNGEM'] && snapMap['SAMSUNGEM'].refPriceKrw) || 1196000;
+        const refKrw = (snapMap['SAMSUNGEM'] && snapMap['SAMSUNGEM'].refPriceKrw) || 944000;
         sem_px = Math.round(perpKrw);
         if (refKrw > 0) {
           sem_chg = Number((((perpKrw - refKrw) / refKrw) * 100).toFixed(2));

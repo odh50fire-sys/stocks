@@ -323,7 +323,9 @@ public class StocksAppWidget extends AppWidgetProvider {
                 SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
                 SharedPreferences.Editor editor = prefs.edit();
 
-                final double[] semRefKrwHolder = new double[]{ 1196000.0 };
+                final double[] fxRateHolder = new double[]{ prefs.getFloat(PREF_CACHE_PREFIX + "fx_rate", 1346.0f) };
+                final double[] semRefKrwHolder = new double[]{ prefs.getFloat(PREF_CACHE_PREFIX + "sem_ref_price", 944000.0f) };
+                final double[] binanceLastPxHolder = new double[]{ Double.NaN };
 
                 // Use CountDownLatch to coordinate parallel fetches
                 int taskCount = isWeekend ? 4 : 6;
@@ -434,12 +436,21 @@ public class StocksAppWidget extends AppWidgetProvider {
                     });
                 }
 
-                // Task Common 1: 개별 주식 스냅샷 (SKHX, SMSN, MU, PLTR, NVDA, META, TSLA, SAMSUNGEM ref)
+                // Task Common 1: 개별 주식 스냅샷 (SKHX, SMSN, MU, PLTR, NVDA, META, TSLA, SAMSUNGEM ref, fx.rate)
                 networkPool.execute(() -> {
                     try {
                         String snapJson = fetchHttp("https://hlkr.co.kr/api/snapshot?_t=" + nowTs);
                         if (snapJson != null) {
                             JSONObject snapObj = new JSONObject(snapJson);
+                            JSONObject fxObj = snapObj.optJSONObject("fx");
+                            if (fxObj != null) {
+                                double r = fxObj.optDouble("rate", Double.NaN);
+                                if (!Double.isNaN(r) && r > 0) {
+                                    fxRateHolder[0] = r;
+                                    editor.putFloat(PREF_CACHE_PREFIX + "fx_rate", (float) r);
+                                }
+                            }
+
                             JSONArray assets = snapObj.optJSONArray("assets");
                             if (assets != null) {
                                 for (int i = 0; i < assets.length(); i++) {
@@ -458,7 +469,11 @@ public class StocksAppWidget extends AppWidgetProvider {
                                         else if ("TSLA".equals(sym)) saveStock(editor, prefs, "tsla", val, nowTs);
                                     }
                                     if ("SAMSUNGEM".equals(sym)) {
-                                        semRefKrwHolder[0] = it.optDouble("refPriceKrw", 1196000.0);
+                                        double ref = it.optDouble("refPriceKrw", Double.NaN);
+                                        if (!Double.isNaN(ref) && ref > 0) {
+                                            semRefKrwHolder[0] = ref;
+                                            editor.putFloat(PREF_CACHE_PREFIX + "sem_ref_price", (float) ref);
+                                        }
                                     }
                                 }
                             }
@@ -467,18 +482,15 @@ public class StocksAppWidget extends AppWidgetProvider {
                     finally { latch.countDown(); }
                 });
 
-                // Task Common 2: 삼성전기 바이낸스 선물
+                // Task Common 2: 삼성전기 바이낸스 선물 시세 수신
                 networkPool.execute(() -> {
                     try {
                         String binanceJson = fetchHttp("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=SAMSUNGEMUSDT&_t=" + nowTs);
                         if (binanceJson != null) {
                             JSONObject bObj = new JSONObject(binanceJson);
                             double lastPx = bObj.optDouble("lastPrice", Double.NaN);
-                            if (!Double.isNaN(lastPx) && semRefKrwHolder[0] > 0) {
-                                double fxRate = 1335.8;
-                                double perpKrw = lastPx * fxRate;
-                                double val = Math.round(((perpKrw - semRefKrwHolder[0]) / semRefKrwHolder[0]) * 10000.0) / 100.0;
-                                saveStock(editor, prefs, "sem", val, nowTs);
+                            if (!Double.isNaN(lastPx) && lastPx > 0) {
+                                binanceLastPxHolder[0] = lastPx;
                             }
                         }
                     } catch (Exception ignored) {}
@@ -487,6 +499,13 @@ public class StocksAppWidget extends AppWidgetProvider {
 
                 // Wait up to 3.5 seconds for all parallel network calls to complete
                 latch.await(3500, TimeUnit.MILLISECONDS);
+
+                // Calculate 삼성전기 (Binance USDT * Realtime FX Rate vs Reference KRW Price)
+                if (!Double.isNaN(binanceLastPxHolder[0]) && semRefKrwHolder[0] > 0) {
+                    double perpKrw = binanceLastPxHolder[0] * fxRateHolder[0];
+                    double semChg = Math.round(((perpKrw - semRefKrwHolder[0]) / semRefKrwHolder[0]) * 10000.0) / 100.0;
+                    saveStock(editor, prefs, "sem", semChg, nowTs);
+                }
 
                 // Commit updated cache
                 String timeStr = new SimpleDateFormat("HH:mm", Locale.KOREA).format(new Date());
