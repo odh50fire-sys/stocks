@@ -457,9 +457,23 @@ public class StocksAppWidget extends AppWidgetProvider {
                                     JSONObject it = assets.getJSONObject(i);
                                     JSONObject assetObj = it.optJSONObject("asset");
                                     String sym = assetObj != null ? assetObj.optString("symbol") : it.optString("symbol");
-                                    double prem = it.optDouble("premiumPct", Double.NaN);
-                                    if (!Double.isNaN(prem)) {
-                                        double val = Math.round(prem * 100.0) / 100.0;
+
+                                    // Domestic stocks (SKHX, SMSN): Calculate against actual KRX close to avoid NXT aftermarket distortion (e.g. 0.64% vs 2~3%)
+                                    double val = Double.NaN;
+                                    JSONObject naverObj = it.optJSONObject("naver");
+                                    double krxClose = naverObj != null ? naverObj.optDouble("krxClose", Double.NaN) : Double.NaN;
+                                    double perpKrw = it.optDouble("perpKrw", Double.NaN);
+
+                                    if (("SKHX".equals(sym) || "SMSN".equals(sym)) && !Double.isNaN(krxClose) && krxClose > 0 && !Double.isNaN(perpKrw) && perpKrw > 0) {
+                                        val = Math.round(((perpKrw - krxClose) / krxClose) * 10000.0) / 100.0;
+                                    } else {
+                                        double prem = it.optDouble("premiumPct", Double.NaN);
+                                        if (!Double.isNaN(prem)) {
+                                            val = Math.round(prem * 100.0) / 100.0;
+                                        }
+                                    }
+
+                                    if (!Double.isNaN(val)) {
                                         if ("SKHX".equals(sym)) saveStock(editor, prefs, "skhx", val, nowTs);
                                         else if ("SMSN".equals(sym)) saveStock(editor, prefs, "smsn", val, nowTs);
                                         else if ("MU".equals(sym)) saveStock(editor, prefs, "mu", val, nowTs);
@@ -497,8 +511,8 @@ public class StocksAppWidget extends AppWidgetProvider {
                     finally { latch.countDown(); }
                 });
 
-                // Wait up to 3.5 seconds for all parallel network calls to complete
-                latch.await(3500, TimeUnit.MILLISECONDS);
+                // Wait up to 5 seconds for all parallel network calls to complete
+                latch.await(5000, TimeUnit.MILLISECONDS);
 
                 // Calculate 삼성전기 (Binance USDT * Realtime FX Rate vs Reference KRW Price)
                 if (!Double.isNaN(binanceLastPxHolder[0]) && semRefKrwHolder[0] > 0) {
@@ -793,8 +807,8 @@ public class StocksAppWidget extends AppWidgetProvider {
             URL url = new URL(urlString);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
-            conn.setConnectTimeout(3000);
-            conn.setReadTimeout(3000);
+            conn.setConnectTimeout(4000);
+            conn.setReadTimeout(4000);
             conn.setUseCaches(false);
             conn.setDefaultUseCaches(false);
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");

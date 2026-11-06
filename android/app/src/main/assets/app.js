@@ -358,10 +358,23 @@ async function fetchAllIndicators() {
             if (sym) {
               const hl = it.hl || {};
               const px = hl.midPx !== undefined ? hl.midPx : (hl.markPx !== undefined ? hl.markPx : it.perpPrice);
-              const chg = it.premiumPct !== undefined ? it.premiumPct : (it.change24hPct !== undefined ? it.change24hPct : null);
+              
+              // Domestic stocks (SKHX, SMSN): Calculate against actual KRX close to avoid NXT aftermarket distortion
+              let chg = null;
+              const naver = it.naver || {};
+              const krxClose = naver.krxClose;
+              const perpKrw = it.perpKrw;
+              if ((sym === 'SKHX' || sym === 'SMSN') && krxClose && perpKrw && krxClose > 0) {
+                chg = Number((((perpKrw - krxClose) / krxClose) * 100).toFixed(2));
+              } else if (it.premiumPct !== undefined && it.premiumPct !== null) {
+                chg = Number(Number(it.premiumPct).toFixed(2));
+              } else if (it.change24hPct !== undefined) {
+                chg = Number(Number(it.change24hPct).toFixed(2));
+              }
+
               snapMap[sym] = {
                 price: px,
-                changePct: chg !== null && !isNaN(chg) ? Number(Number(chg).toFixed(2)) : null,
+                changePct: chg !== null && !isNaN(chg) ? chg : null,
                 refPriceKrw: it.refPriceKrw
               };
             }
