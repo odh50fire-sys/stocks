@@ -81,7 +81,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
-                <TextView android:id="@+id/w_sub_1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="코스피 야간선물" android:textColor="@color/text_white" android:textSize="14sp" android:textStyle="bold" android:singleLine="true" android:ellipsize="end" />
+                <TextView android:id="@+id/w_sub_1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="코스피" android:textColor="@color/text_white" android:textSize="14sp" android:textStyle="bold" android:singleLine="true" android:ellipsize="end" />
                 <TextView android:id="@+id/w_item_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/stock_up" android:textSize="18sp" android:textStyle="bold" />
             </LinearLayout>
             <ImageView

@@ -231,16 +231,16 @@ public class StocksAppWidget extends AppWidgetProvider {
         String key1, key2, key3, key4;
 
         if (isWeekend) {
-            name1 = "W 코스피200";
-            name2 = "W 나스닥100";
-            name3 = "W Tech 100";
-            name4 = "W Oil (Crude)";
-            key1 = "w_kr200";
-            key2 = "w_nq100";
+            name1 = "코스피";
+            name2 = "나스닥 100";
+            name3 = "Tech 100";
+            name4 = "WTI 원유";
+            key1 = "kmngt";
+            key2 = "ndx";
             key3 = "w_tech";
-            key4 = "w_oil";
+            key4 = "wti";
         } else {
-            name1 = "코스피 야간선물";
+            name1 = "코스피";
             name2 = "나스닥 100";
             name3 = "S&P 500";
             name4 = "WTI 원유";
@@ -332,7 +332,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                 CountDownLatch latch = new CountDownLatch(taskCount);
 
                 if (isWeekend) {
-                    // Task W1: Weekend Session (다중 백업: weekend-session -> kospi-futures -> IG -> Yahoo EWY)
+                    // Task W1: 코스피 주말 세션 (다중 백업: weekend-session -> kospi-futures -> IG -> Yahoo EWY)
                     networkPool.execute(() -> {
                         try {
                             double val = Double.NaN;
@@ -345,7 +345,11 @@ public class StocksAppWidget extends AppWidgetProvider {
                                 }
                                 if (wObj.has("nasdaq")) {
                                     double nqVal = wObj.getJSONObject("nasdaq").optDouble("changePct", Double.NaN);
-                                    if (!Double.isNaN(nqVal)) saveStock(editor, prefs, "w_nq100", Math.round(nqVal * 100.0) / 100.0, nowTs);
+                                    if (!Double.isNaN(nqVal)) {
+                                        double rNq = Math.round(nqVal * 100.0) / 100.0;
+                                        saveStock(editor, prefs, "w_nq100", rNq, nowTs);
+                                        saveStock(editor, prefs, "ndx", rNq, nowTs);
+                                    }
                                 }
                             }
                             if (Double.isNaN(val)) {
@@ -365,9 +369,12 @@ public class StocksAppWidget extends AppWidgetProvider {
                             }
                             if (Double.isNaN(val)) {
                                 String ewyJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/EWY?interval=15m&range=1d&_t=" + nowTs);
-                                val = parseYahooChangeAndSeed(ewyJson, "w_kr200", prefs, editor, nowTs);
+                                val = parseYahooChangeAndSeed(ewyJson, "kmngt", prefs, editor, nowTs);
                             }
-                            if (!Double.isNaN(val)) saveStock(editor, prefs, "w_kr200", val, nowTs);
+                            if (!Double.isNaN(val)) {
+                                saveStock(editor, prefs, "kmngt", val, nowTs);
+                                saveStock(editor, prefs, "w_kr200", val, nowTs);
+                            }
                         } catch (Exception ignored) {}
                         finally { latch.countDown(); }
                     });
@@ -387,23 +394,50 @@ public class StocksAppWidget extends AppWidgetProvider {
                         try {
                             String html = fetchHttp("https://www.ig.com/en/indices/markets-indices/weekend-oil---us-crude?_t=" + nowTs);
                             double val = parseIgChange(html);
-                            if (!Double.isNaN(val)) saveStock(editor, prefs, "w_oil", val, nowTs);
+                            if (!Double.isNaN(val)) { saveStock(editor, prefs, "w_oil", val, nowTs); saveStock(editor, prefs, "wti", val, nowTs); }
                         } catch (Exception ignored) {}
                         finally { latch.countDown(); }
                     });
 
                 } else {
-                    // Task D1: 코스피 야간선물 (다중 백업: kospiNgt -> weekend -> weekend-session -> Yahoo EWY -> IG)
+                    // Task D1: 코스피 (주간선물 / 야간선물 자동전환 및 다중 백업: kospiDay/kospiNgt -> weekend -> weekend-session -> Yahoo EWY -> IG)
                     networkPool.execute(() -> {
                         try {
                             double val = Double.NaN;
                             String kFutJson = fetchHttp("https://hlkr.co.kr/api/kospi-futures?_t=" + nowTs);
                             if (kFutJson != null) {
                                 JSONObject kObj = new JSONObject(kFutJson);
-                                JSONObject ngt = kObj.optJSONObject("kospiNgt");
-                                if (ngt != null && !ngt.isNull("changePct")) {
-                                    val = ngt.optDouble("changePct", Double.NaN);
+                                java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Seoul"));
+                                int hour = cal.get(java.util.Calendar.HOUR_OF_DAY);
+                                int min = cal.get(java.util.Calendar.MINUTE);
+                                int totalMin = hour * 60 + min;
+                                boolean isDaytime = (totalMin >= 8 * 60 + 30 && totalMin < 18 * 60);
+
+                                JSONObject dayObj = kObj.optJSONObject("kospiDay");
+                                JSONObject ngtObj = kObj.optJSONObject("kospiNgt");
+                                boolean dayOn = dayObj != null && dayObj.optBoolean("on", false);
+                                boolean ngtOn = ngtObj != null && ngtObj.optBoolean("on", false);
+
+                                if (dayOn && dayObj != null && !dayObj.isNull("changePct")) {
+                                    val = dayObj.optDouble("changePct", Double.NaN);
+                                } else if (ngtOn && ngtObj != null && !ngtObj.isNull("changePct")) {
+                                    val = ngtObj.optDouble("changePct", Double.NaN);
+                                } else if (isDaytime) {
+                                    if (dayObj != null && !dayObj.isNull("changePct")) {
+                                        val = dayObj.optDouble("changePct", Double.NaN);
+                                    }
+                                    if (Double.isNaN(val) && ngtObj != null && !ngtObj.isNull("changePct")) {
+                                        val = ngtObj.optDouble("changePct", Double.NaN);
+                                    }
+                                } else {
+                                    if (ngtObj != null && !ngtObj.isNull("changePct")) {
+                                        val = ngtObj.optDouble("changePct", Double.NaN);
+                                    }
+                                    if (Double.isNaN(val) && dayObj != null && !dayObj.isNull("changePct")) {
+                                        val = dayObj.optDouble("changePct", Double.NaN);
+                                    }
                                 }
+
                                 if (Double.isNaN(val)) {
                                     JSONObject wk = kObj.optJSONObject("weekend");
                                     if (wk != null && !wk.isNull("changePct")) {
@@ -434,7 +468,10 @@ public class StocksAppWidget extends AppWidgetProvider {
                                 }
                                 if (!Double.isNaN(igVal)) val = igVal;
                             }
-                            if (!Double.isNaN(val)) saveStock(editor, prefs, "kmngt", val, nowTs);
+                            if (!Double.isNaN(val)) {
+                                saveStock(editor, prefs, "kmngt", val, nowTs);
+                                saveStock(editor, prefs, "w_kr200", val, nowTs);
+                            }
                         } catch (Exception ignored) {}
                         finally { latch.countDown(); }
                     });
@@ -445,7 +482,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                             String nqJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/NQ=F?interval=15m&range=1d&_t=" + nowTs);
                             double val = parseYahooChangeAndSeed(nqJson, "ndx", prefs, editor, nowTs);
                             if (!Double.isNaN(val)) {
-                                saveStock(editor, prefs, "ndx", val, nowTs);
+                                saveStock(editor, prefs, "ndx", val, nowTs); saveStock(editor, prefs, "w_nq100", val, nowTs);
                             } else {
                                 String marketHtml = fetchHttp("https://hlkr.co.kr/market?_t=" + nowTs);
                                 double fbVal = parseMarketChange(marketHtml, "nasdaq");
@@ -477,7 +514,7 @@ public class StocksAppWidget extends AppWidgetProvider {
                             String clJson = fetchHttp("https://query1.finance.yahoo.com/v8/finance/chart/CL=F?interval=15m&range=1d&_t=" + nowTs);
                             double val = parseYahooChangeAndSeed(clJson, "wti", prefs, editor, nowTs);
                             if (!Double.isNaN(val)) {
-                                saveStock(editor, prefs, "wti", val, nowTs);
+                                saveStock(editor, prefs, "wti", val, nowTs); saveStock(editor, prefs, "w_oil", val, nowTs);
                             } else {
                                 String macroJson = fetchHttp("https://hlkr.co.kr/api/dash-macro?_t=" + nowTs);
                                 double fbVal = parseMacroChange(macroJson, "wti");

@@ -255,10 +255,10 @@ async function fetchAllIndicators() {
         if (p.price) igOil = p;
       }
 
-      item1 = { id: "kr200", index: 1, name: "W 코스피200", symbol: "KR200", source: weekendKospiSource, hasChart: true, price: weekendKospiPx, changePct: weekendKospiChg, currency: "pt" };
-      item2 = { id: "nasdaq", index: 2, name: "W 나스닥100", symbol: "NQ100", source: "hlkr.co.kr", hasChart: false, price: weekendNasdaqPx, changePct: weekendNasdaqChg, currency: "pt" };
-      item3 = { id: "ig_tech100", index: 3, name: "W US Tech 100", symbol: "TECH100", source: "ig.com", hasChart: false, price: igTech.price, changePct: igTech.changePct, currency: "pt" };
-      item4 = { id: "ig_oil", index: 4, name: "W Oil (Crude)", symbol: "OIL (WTI)", source: "ig.com", hasChart: false, price: igOil.price, changePct: igOil.changePct, currency: "pt" };
+      item1 = { id: "kr200", index: 1, name: "코스피", symbol: "KR200", source: weekendKospiSource, hasChart: true, price: weekendKospiPx, changePct: weekendKospiChg, currency: "pt" };
+      item2 = { id: "nasdaq", index: 2, name: "나스닥 100", symbol: "NQ100", source: "hlkr.co.kr", hasChart: false, price: weekendNasdaqPx, changePct: weekendNasdaqChg, currency: "pt" };
+      item3 = { id: "ig_tech100", index: 3, name: "Tech 100", symbol: "TECH100", source: "ig.com", hasChart: false, price: igTech.price, changePct: igTech.changePct, currency: "pt" };
+      item4 = { id: "ig_oil", index: 4, name: "WTI 원유", symbol: "OIL (WTI)", source: "ig.com", hasChart: false, price: igOil.price, changePct: igOil.changePct, currency: "pt" };
 
       var resolvedSnapRes = snapRes;
       var resolvedBinanceSemText = binanceSemText;
@@ -281,18 +281,59 @@ async function fetchAllIndicators() {
         httpGet(`https://query1.finance.yahoo.com/v8/finance/chart/EWY?interval=1m&range=1d&_t=${ts}`)
       ]);
 
-      // 1. 코스피 야간선물 (다중 백업: kospiNgt -> weekend -> weekend-session -> Yahoo EWY)
+      // 1. 코스피 (주간선물 / 야간선물 자동전환 및 다중 백업: kospiDay/kospiNgt -> weekend -> weekend-session -> Yahoo EWY)
       let kospiNgtPx = 760.66, kospiNgtChg = 1.05;
       let kospiSource = "hlkr.co.kr";
       let kospiFound = false;
       if (kospiFutRes.status === "fulfilled" && kospiFutRes.value) {
         try {
           const kJson = JSON.parse(kospiFutRes.value);
-          if (kJson.kospiNgt && kJson.kospiNgt.changePct !== null && kJson.kospiNgt.changePct !== undefined) {
-            kospiNgtPx = kJson.kospiNgt.price !== null && kJson.kospiNgt.price !== undefined ? kJson.kospiNgt.price : kospiNgtPx;
-            kospiNgtChg = Number(kJson.kospiNgt.changePct.toFixed(2));
+          const kstHour = new Date(Date.now() + 9 * 3600 * 1000).getUTCHours();
+          const kstMin = new Date(Date.now() + 9 * 3600 * 1000).getUTCMinutes();
+          const isDaytime = (kstHour * 60 + kstMin >= 8 * 60 + 30 && kstHour * 60 + kstMin < 18 * 60);
+
+          const dayObj = kJson.kospiDay;
+          const ngtObj = kJson.kospiNgt;
+          const dayOn = dayObj && dayObj.on;
+          const ngtOn = ngtObj && ngtObj.on;
+
+          if (dayOn && dayObj && dayObj.changePct !== null && dayObj.changePct !== undefined) {
+            kospiNgtPx = dayObj.price !== null && dayObj.price !== undefined ? dayObj.price : kospiNgtPx;
+            kospiNgtChg = Number(dayObj.changePct.toFixed(2));
+            kospiSource = "hlkr.co.kr (주간선물)";
             kospiFound = true;
-          } else if (kJson.weekend && kJson.weekend.changePct !== null && kJson.weekend.changePct !== undefined) {
+          } else if (ngtOn && ngtObj && ngtObj.changePct !== null && ngtObj.changePct !== undefined) {
+            kospiNgtPx = ngtObj.price !== null && ngtObj.price !== undefined ? ngtObj.price : kospiNgtPx;
+            kospiNgtChg = Number(ngtObj.changePct.toFixed(2));
+            kospiSource = "hlkr.co.kr (야간선물)";
+            kospiFound = true;
+          } else if (isDaytime) {
+            if (dayObj && dayObj.changePct !== null && dayObj.changePct !== undefined) {
+              kospiNgtPx = dayObj.price !== null && dayObj.price !== undefined ? dayObj.price : kospiNgtPx;
+              kospiNgtChg = Number(dayObj.changePct.toFixed(2));
+              kospiSource = "hlkr.co.kr (주간선물)";
+              kospiFound = true;
+            } else if (ngtObj && ngtObj.changePct !== null && ngtObj.changePct !== undefined) {
+              kospiNgtPx = ngtObj.price !== null && ngtObj.price !== undefined ? ngtObj.price : kospiNgtPx;
+              kospiNgtChg = Number(ngtObj.changePct.toFixed(2));
+              kospiSource = "hlkr.co.kr (야간선물)";
+              kospiFound = true;
+            }
+          } else {
+            if (ngtObj && ngtObj.changePct !== null && ngtObj.changePct !== undefined) {
+              kospiNgtPx = ngtObj.price !== null && ngtObj.price !== undefined ? ngtObj.price : kospiNgtPx;
+              kospiNgtChg = Number(ngtObj.changePct.toFixed(2));
+              kospiSource = "hlkr.co.kr (야간선물)";
+              kospiFound = true;
+            } else if (dayObj && dayObj.changePct !== null && dayObj.changePct !== undefined) {
+              kospiNgtPx = dayObj.price !== null && dayObj.price !== undefined ? dayObj.price : kospiNgtPx;
+              kospiNgtChg = Number(dayObj.changePct.toFixed(2));
+              kospiSource = "hlkr.co.kr (주간선물)";
+              kospiFound = true;
+            }
+          }
+
+          if (!kospiFound && kJson.weekend && kJson.weekend.changePct !== null && kJson.weekend.changePct !== undefined) {
             kospiNgtPx = kJson.weekend.price || kospiNgtPx;
             kospiNgtChg = Number(kJson.weekend.changePct.toFixed(2));
             kospiSource = "hlkr.co.kr (Weekend/Off-hours)";
@@ -391,7 +432,7 @@ async function fetchAllIndicators() {
         } catch (e) {}
       }
 
-      item1 = { id: "kospi_ngt", index: 1, name: "코스피 야간선물", symbol: "KMNGT", source: kospiSource, hasChart: true, price: kospiNgtPx, changePct: kospiNgtChg, currency: "pt" };
+      item1 = { id: "kospi_ngt", index: 1, name: "코스피", symbol: "KMNGT", source: kospiSource, hasChart: true, price: kospiNgtPx, changePct: kospiNgtChg, currency: "pt" };
       item2 = { id: "ndx", index: 2, name: "나스닥 100", symbol: "NQ=F", source: ndxSource, hasChart: false, price: ndxPx, changePct: ndxChg, currency: "pt" };
       item3 = { id: "sp500", index: 3, name: "S&P 500", symbol: "ES=F", source: spxSource, hasChart: false, price: spxPx, changePct: spxChg, currency: "pt" };
       item4 = { id: "wti", index: 4, name: "WTI 원유", symbol: "CL=F", source: wtiSource, hasChart: false, price: wtiPx, changePct: wtiChg, currency: "$" };
@@ -880,7 +921,7 @@ async function loadCandleData(symbol, interval) {
       const kRaw = await httpGet(`https://hlkr.co.kr/api/kospi-futures?_t=${Date.now()}`);
       if (kRaw) {
         const kJson = JSON.parse(kRaw);
-        const series = (kJson.kospiNgt && kJson.kospiNgt.series) || (kJson.weekend && kJson.weekend.series);
+        const series = (kJson.kospiDay && kJson.kospiDay.series && kJson.kospiDay.series.length > 0) ? kJson.kospiDay.series : ((kJson.kospiNgt && kJson.kospiNgt.series) || (kJson.weekend && kJson.weekend.series));
         if (Array.isArray(series) && series.length > 0) {
           const nowSec = Math.floor(Date.now() / 1000);
           const chunkCandles = [];
